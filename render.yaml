@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: hospital-backend
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python render_start.py
+    plan: free

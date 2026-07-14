@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI-First Hospital Operations Dashboard</title>
+    <link rel="stylesheet" href="dashboard.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="header">
+        <div>
+          <h1>AI-First Hospital Operations Dashboard</h1>
+          <p>Operational command console for bed management and ED flow</p>
+        </div>
+        <div class="header-actions">
+          <div class="api-base-bar">
+            <input id="apiBaseInput" placeholder="API Base URL" />
+            <button onclick="setApiBase()">Set API Base</button>
+            <span id="currentApiBase"></span>
+          </div>
+          <label class="toggle">
+            <input id="autoRefreshToggle" type="checkbox" checked />
+            <span>Auto-refresh every 60 seconds</span>
+          </label>
+          <label class="toggle">
+            <input id="simToggle" type="checkbox" />
+            <span>Simulation mode</span>
+          </label>
+          <div id="connectionStatus" class="connection-status">Checking connection…</div>
+          <button id="refresh-btn">Refresh</button>
+        </div>
+      </header>
+
+      <section class="kpi-grid" id="kpi-tiles"></section>
+
+      <section class="dashboard-grid">
+        <div class="panel">
+          <h2>ED Pressure</h2>
+          <canvas id="ed-chart"></canvas>
+          <div class="queue-panel">
+            <h3>Current ED Queue</h3>
+            <div id="ed-queue"></div>
+          </div>
+          <div class="risk-panel">
+            <h3>ED Overcrowding Risk</h3>
+            <div id="ed-risk-badge" class="risk-badge low">Loading…</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>Bed Map</h2>
+          <div id="bed-map" class="bed-map"></div>
+        </div>
+      </section>
+
+      <section class="dashboard-grid lower-grid">
+        <div class="panel">
+          <h2>Inpatients</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Patient</th>
+                <th>Age</th>
+                <th>Frailty</th>
+                <th>Diagnosis</th>
+                <th>Admission</th>
+                <th>LoS</th>
+              </tr>
+            </thead>
+            <tbody id="inpatient-table-body"></tbody>
+          </table>
+          <div class="discharge-panel">
+            <h3>Discharge Opportunities</h3>
+            <div id="discharge-opportunities"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>Forecast</h2>
+          <div class="forecast-card">
+            <h3>ED arrivals next 6 hours</h3>
+            <div id="forecast-ed" class="forecast-value"></div>
+          </div>
+          <div class="forecast-card">
+            <h3>Bed availability next 24 hours</h3>
+            <div id="forecast-beds" class="forecast-value"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel agent-panel">
+        <div class="agent-header">
+          <h2>Agent Recommendation</h2>
+          <button id="run-agent-btn">Run AI Agent</button>
+        </div>
+        <div id="agent-task" class="agent-task"></div>
+        <div id="agent-summary" class="agent-summary"></div>
+        <div id="agent-confidence" class="agent-confidence"></div>
+        <div id="agent-explanation" class="agent-explanation"></div>
+        <ul id="agent-actions"></ul>
+      </section>
+
+      <div id="error" class="error"></div>
+    </div>
+
+    <script src="api_client.js"></script>
+    <script src="dashboard.js"></script>
+  </body>
+</html>

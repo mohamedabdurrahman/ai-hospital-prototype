@@ -1,0 +1,5 @@
+ward_id,name,specialty,bed_count
+ward-med-01,General Medicine,general_med,24
+ward-ger-01,Geriatrics,geriatrics,20
+ward-surg-01,Surgery,surgery,18
+ward-icu-01,Intensive Care,icu,8

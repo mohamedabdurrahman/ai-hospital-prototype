@@ -1,0 +1,29 @@
+discharge_plan_id,admission_id,patient_id,discharge_ready_date,destination,dtoc_reason,dtoc_days,home_support_required,nhss_placement_required
+DP-00001,ADM-00001,P-00001,2026-07-06 06:00:00,Home,Awaiting specialist assessment,1,False,False
+DP-00002,ADM-00002,P-00002,2026-07-16 07:00:00,NHSS placement,Awaiting NHSS placement,3,False,True
+DP-00003,ADM-00003,P-00003,2026-07-12 13:00:00,Home,Awaiting specialist assessment,4,False,False
+DP-00004,ADM-00004,P-00007,2026-07-13 13:00:00,Home,Awaiting social care,3,False,False
+DP-00005,ADM-00007,P-00012,2026-07-04 12:00:00,Home,Awaiting social care,1,False,False
+DP-00006,ADM-00008,P-00013,2026-07-22 03:00:00,Home,Awaiting home support,4,True,False
+DP-00007,ADM-00009,P-00017,2026-07-21 17:00:00,NHSS placement,Awaiting NHSS placement,3,False,True
+DP-00008,ADM-00012,P-00021,2026-07-22 08:00:00,Home,Awaiting specialist assessment,3,False,False
+DP-00009,ADM-00014,P-00028,2026-07-13 15:00:00,Home,Awaiting social care,2,False,False
+DP-00010,ADM-00032,P-00054,2026-07-08 19:00:00,Home,Awaiting social care,2,False,False
+DP-00011,ADM-00041,P-00065,2026-07-12 07:00:00,Home,Awaiting home support,3,True,False
+DP-00012,ADM-00042,P-00066,2026-07-14 19:00:00,NHSS placement,Awaiting NHSS placement,4,False,True
+DP-00013,ADM-00045,P-00073,2026-07-17 07:00:00,Home,Awaiting specialist assessment,1,False,False
+DP-00014,ADM-00047,P-00078,2026-07-14 07:00:00,Home,Awaiting specialist assessment,1,False,False
+DP-00015,ADM-00051,P-00082,2026-07-14 07:00:00,Home,Awaiting specialist assessment,3,False,False
+DP-00016,ADM-00054,P-00088,2026-07-16 09:00:00,NHSS placement,Awaiting NHSS placement,3,False,True
+DP-00017,ADM-00058,P-00095,2026-07-25 20:00:00,Home,Awaiting home support,4,True,False
+DP-00018,ADM-00059,P-00097,2026-07-12 06:00:00,Home,Awaiting home support,3,True,False
+DP-00019,ADM-00061,P-00099,2026-07-09 08:00:00,Home,Awaiting social care,4,False,False
+DP-00020,ADM-00063,P-00104,2026-07-08 15:00:00,NHSS placement,Awaiting NHSS placement,3,False,True
+DP-00021,ADM-00069,P-00110,2026-07-20 21:00:00,Home,Awaiting specialist assessment,4,False,False
+DP-00022,ADM-00071,P-00112,2026-07-07 11:00:00,Home,Awaiting social care,4,False,False
+DP-00023,ADM-00086,P-00142,2026-07-19 00:00:00,NHSS placement,Awaiting NHSS placement,3,False,True
+DP-00024,ADM-00090,P-00152,2026-07-13 18:00:00,NHSS placement,Awaiting NHSS placement,3,False,True
+DP-00025,ADM-00095,P-00157,2026-07-03 16:00:00,Home,Awaiting social care,1,False,False
+DP-00026,ADM-00100,P-00172,2026-07-08 08:00:00,Home,Awaiting specialist assessment,1,False,False
+DP-00027,ADM-00101,P-00174,2026-07-19 19:00:00,Home,Awaiting social care,4,False,False
+DP-00028,ADM-00103,P-00180,2026-07-24 17:00:00,NHSS placement,Awaiting NHSS placement,4,False,True

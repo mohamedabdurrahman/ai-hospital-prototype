@@ -1,0 +1,181 @@
+patient_id,age,sex,frailty_score,comorbidity_count,primary_diagnosis,risk_group
+P-00001,82,F,0.52,0,DVT,older_adult
+P-00002,95,M,0.55,1,Bowel obstruction,older_adult
+P-00003,62,M,0.36,2,Bowel obstruction,standard
+P-00004,74,F,0.47,5,Chest pain,senior
+P-00005,60,F,0.29,3,DVT,standard
+P-00006,51,F,0.39,1,DVT,standard
+P-00007,66,M,0.39,3,Chest pain,senior
+P-00008,64,M,0.39,1,Asthma,standard
+P-00009,76,M,0.45,3,DVT,older_adult
+P-00010,25,M,0.37,3,Bowel obstruction,standard
+P-00011,59,F,0.21,1,Asthma,standard
+P-00012,75,M,0.26,2,Asthma,older_adult
+P-00013,78,F,0.47,2,DVT,older_adult
+P-00014,31,M,0.31,1,Bowel obstruction,standard
+P-00015,66,F,0.38,2,Chest pain,senior
+P-00016,24,F,0.13,1,Chest pain,standard
+P-00017,95,F,0.49,2,COPD exacerbation,older_adult
+P-00018,95,M,0.63,2,Bowel obstruction,older_adult
+P-00019,77,M,0.39,3,DVT,older_adult
+P-00020,31,F,0.28,1,DVT,standard
+P-00021,26,F,0.11,2,Bowel obstruction,standard
+P-00022,68,F,0.14,1,Chest pain,senior
+P-00023,57,M,0.6,2,DVT,standard
+P-00024,58,F,0.18,2,DVT,standard
+P-00025,65,M,0.09,2,Bowel obstruction,senior
+P-00026,78,M,0.33,0,Chest pain,older_adult
+P-00027,67,M,0.56,3,Asthma,senior
+P-00028,74,F,0.28,0,Asthma,senior
+P-00029,52,M,0.1,4,Chest pain,standard
+P-00030,78,M,0.53,3,Bowel obstruction,older_adult
+P-00031,19,F,0.46,0,COPD exacerbation,standard
+P-00032,72,F,0.51,3,COPD exacerbation,senior
+P-00033,5,F,0.42,1,Asthma,standard
+P-00034,75,F,0.22,3,Bowel obstruction,older_adult
+P-00035,21,F,0.31,1,Chest pain,standard
+P-00036,68,M,0.3,0,COPD exacerbation,senior
+P-00037,75,F,0.39,1,COPD exacerbation,older_adult
+P-00038,95,M,0.76,3,Falls,older_adult
+P-00039,23,F,0.17,3,COPD exacerbation,standard
+P-00040,53,M,0.14,2,Chest pain,standard
+P-00041,50,M,0.47,0,Bowel obstruction,standard
+P-00042,66,M,0.34,1,Chest pain,senior
+P-00043,95,F,0.58,1,Chest pain,older_adult
+P-00044,13,M,0.28,2,Chest pain,standard
+P-00045,50,M,0.26,1,Bowel obstruction,standard
+P-00046,49,M,0.5,1,Asthma,standard
+P-00047,59,F,0.28,1,COPD exacerbation,standard
+P-00048,95,M,0.32,6,COPD exacerbation,older_adult
+P-00049,68,M,0.49,2,DVT,senior
+P-00050,26,F,0.04,0,Chest pain,standard
+P-00051,58,F,0.21,2,Asthma,standard
+P-00052,95,M,0.74,6,Frailty syndrome,older_adult
+P-00053,78,M,0.25,2,DVT,older_adult
+P-00054,29,M,0.34,0,Bowel obstruction,standard
+P-00055,95,F,0.47,5,COPD exacerbation,older_adult
+P-00056,71,M,0.26,3,Chest pain,senior
+P-00057,80,F,0.16,1,DVT,older_adult
+P-00058,34,F,0.29,2,Bowel obstruction,standard
+P-00059,83,M,0.47,1,Bowel obstruction,older_adult
+P-00060,24,F,0.37,2,DVT,standard
+P-00061,95,F,0.55,4,Bowel obstruction,older_adult
+P-00062,84,F,0.2,1,Bowel obstruction,older_adult
+P-00063,59,F,0.06,2,DVT,standard
+P-00064,95,F,0.56,4,DVT,older_adult
+P-00065,95,M,0.45,2,Chest pain,older_adult
+P-00066,42,M,0.27,2,Chest pain,standard
+P-00067,3,M,0.35,1,COPD exacerbation,standard
+P-00068,77,M,0.48,3,Chest pain,older_adult
+P-00069,49,M,0.41,1,DVT,standard
+P-00070,75,F,0.33,2,Chest pain,older_adult
+P-00071,72,M,0.4,1,Asthma,senior
+P-00072,31,M,0.12,3,Chest pain,standard
+P-00073,95,F,0.49,3,DVT,older_adult
+P-00074,71,F,0.38,0,COPD exacerbation,senior
+P-00075,35,M,0.38,2,Asthma,standard
+P-00076,56,M,0.06,1,COPD exacerbation,standard
+P-00077,57,F,0.38,3,DVT,standard
+P-00078,59,M,0.21,2,Asthma,standard
+P-00079,73,F,0.36,3,Bowel obstruction,senior
+P-00080,85,M,0.53,0,COPD exacerbation,older_adult
+P-00081,44,M,0.21,1,Asthma,standard
+P-00082,78,F,0.21,1,DVT,older_adult
+P-00083,27,F,0.18,1,Asthma,standard
+P-00084,75,F,0.18,1,Bowel obstruction,older_adult
+P-00085,47,M,0.33,5,DVT,standard
+P-00086,52,F,0.2,2,Asthma,standard
+P-00087,39,M,0.2,0,Chest pain,standard
+P-00088,35,M,0.19,1,COPD exacerbation,standard
+P-00089,48,M,0.28,2,COPD exacerbation,standard
+P-00090,60,F,0.33,4,COPD exacerbation,standard
+P-00091,95,M,0.44,3,Chest pain,older_adult
+P-00092,65,F,0.3,1,COPD exacerbation,senior
+P-00093,3,F,0.17,1,Bowel obstruction,standard
+P-00094,7,M,0.14,3,Asthma,standard
+P-00095,95,F,0.24,3,Bowel obstruction,older_adult
+P-00096,65,M,0.19,4,COPD exacerbation,senior
+P-00097,50,M,0.1,2,Chest pain,standard
+P-00098,95,F,0.59,1,Bowel obstruction,older_adult
+P-00099,83,M,0.5,0,DVT,older_adult
+P-00100,65,M,0.17,5,Chest pain,senior
+P-00101,45,M,0.42,0,Asthma,standard
+P-00102,67,M,0.36,2,Bowel obstruction,senior
+P-00103,79,M,0.6,2,Bowel obstruction,older_adult
+P-00104,43,M,0.12,1,COPD exacerbation,standard
+P-00105,75,F,0.62,1,Bowel obstruction,older_adult
+P-00106,67,M,0.15,3,COPD exacerbation,senior
+P-00107,59,F,0.12,0,Asthma,standard
+P-00108,65,F,0.44,3,Bowel obstruction,senior
+P-00109,79,F,0.2,5,DVT,older_adult
+P-00110,39,F,0.29,1,Asthma,standard
+P-00111,84,F,0.42,6,Bowel obstruction,older_adult
+P-00112,68,F,0.26,2,Chest pain,senior
+P-00113,95,F,0.43,1,COPD exacerbation,older_adult
+P-00114,50,F,0.23,0,Bowel obstruction,standard
+P-00115,29,M,0.38,0,Asthma,standard
+P-00116,61,F,0.23,0,Asthma,standard
+P-00117,25,F,0.25,1,COPD exacerbation,standard
+P-00118,58,M,0.21,1,DVT,standard
+P-00119,49,F,0.14,2,DVT,standard
+P-00120,53,F,0.3,0,Chest pain,standard
+P-00121,18,M,0.27,0,COPD exacerbation,standard
+P-00122,21,F,0.0,3,DVT,standard
+P-00123,80,M,0.47,3,Bowel obstruction,older_adult
+P-00124,73,F,0.57,4,Chest pain,senior
+P-00125,60,M,0.33,1,Asthma,standard
+P-00126,35,M,0.1,1,COPD exacerbation,standard
+P-00127,76,M,0.38,2,DVT,older_adult
+P-00128,95,M,0.52,4,Chest pain,older_adult
+P-00129,65,F,0.16,0,Chest pain,senior
+P-00130,66,M,0.34,0,Asthma,senior
+P-00131,74,M,0.49,2,COPD exacerbation,senior
+P-00132,62,M,0.42,3,Bowel obstruction,standard
+P-00133,10,M,0.18,1,Asthma,standard
+P-00134,82,F,0.46,2,Asthma,older_adult
+P-00135,76,F,0.42,4,Asthma,older_adult
+P-00136,82,M,0.47,2,Bowel obstruction,older_adult
+P-00137,81,F,0.38,1,Chest pain,older_adult
+P-00138,95,M,0.53,4,COPD exacerbation,older_adult
+P-00139,50,M,0.21,0,Bowel obstruction,standard
+P-00140,57,F,0.28,0,Bowel obstruction,standard
+P-00141,65,M,0.37,0,Asthma,senior
+P-00142,77,F,0.4,1,Asthma,older_adult
+P-00143,65,F,0.28,3,DVT,senior
+P-00144,18,F,0.25,6,Chest pain,standard
+P-00145,34,F,0.2,3,Asthma,standard
+P-00146,36,M,0.21,2,Chest pain,standard
+P-00147,63,F,0.29,2,DVT,standard
+P-00148,83,F,0.28,2,Asthma,older_adult
+P-00149,52,F,0.37,2,Asthma,standard
+P-00150,48,F,0.02,4,Asthma,standard
+P-00151,69,F,0.29,0,DVT,senior
+P-00152,95,M,0.67,2,Chest pain,older_adult
+P-00153,50,F,0.36,2,Asthma,standard
+P-00154,65,M,0.25,4,DVT,senior
+P-00155,95,M,0.39,5,Chest pain,older_adult
+P-00156,95,F,0.41,0,Chest pain,older_adult
+P-00157,95,M,0.5,1,Bowel obstruction,older_adult
+P-00158,35,F,0.24,2,DVT,standard
+P-00159,54,F,0.08,2,Bowel obstruction,standard
+P-00160,70,F,0.37,5,DVT,senior
+P-00161,55,M,0.47,2,COPD exacerbation,standard
+P-00162,73,F,0.37,2,Asthma,senior
+P-00163,54,F,0.29,2,Chest pain,standard
+P-00164,60,M,0.42,2,Chest pain,standard
+P-00165,33,F,0.21,2,Asthma,standard
+P-00166,68,M,0.06,2,Bowel obstruction,senior
+P-00167,61,F,0.28,0,COPD exacerbation,standard
+P-00168,60,M,0.25,3,COPD exacerbation,standard
+P-00169,72,M,0.36,5,DVT,senior
+P-00170,78,F,0.41,2,Chest pain,older_adult
+P-00171,39,F,0.3,0,Asthma,standard
+P-00172,79,F,0.54,0,DVT,older_adult
+P-00173,57,F,0.42,1,Bowel obstruction,standard
+P-00174,52,F,0.06,0,Asthma,standard
+P-00175,56,F,0.18,0,Bowel obstruction,standard
+P-00176,35,F,0.3,2,Asthma,standard
+P-00177,81,M,0.38,6,Chest pain,older_adult
+P-00178,81,F,0.53,2,Asthma,older_adult
+P-00179,73,M,0.44,2,Asthma,senior
+P-00180,84,F,0.41,3,Chest pain,older_adult
