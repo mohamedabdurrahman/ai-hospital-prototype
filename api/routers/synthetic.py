@@ -82,3 +82,15 @@ def get_forecast(
         edForecast=dataset.edForecast,
         bedForecast=dataset.bedForecast,
     )
+from api.decision_latency import calculate_decision_latency_score
+
+@router.get("/decision-latency")
+def get_decision_latency(
+    scenario: str = "baseline",
+    seed: int = 42,
+):
+    """
+    Returns the Decision Latency Score for the selected scenario.
+    """
+    dataset = generate_synthetic_hospital(scenario=scenario, seed=seed)
+    return calculate_decision_latency_score(dataset)
