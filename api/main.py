@@ -7,6 +7,8 @@ from api.routers.ed_forecast import router as ed_router
 from api.routers.bed_forecast import router as bed_router
 from api.routers.hospital_state import router as hospital_state_router
 from ui.ui_router import router as ui_router
+from api.routers.synthetic import router as synthetic_router
+app.include_router(synthetic_router)
 
 app = FastAPI(title="AI Hospital Prototype API", version="0.2.0")
 
