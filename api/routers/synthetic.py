@@ -94,3 +94,44 @@ def get_decision_latency(
     """
     dataset = generate_synthetic_hospital(scenario=scenario, seed=seed)
     return calculate_decision_latency_score(dataset)
+
+@router.get("/sol-forecast")
+def sol_forecast(
+    scenario: str = "baseline",
+    seed: int = 42,
+):
+    """
+    GPT‑5.6 Sol Forecasting Prompt
+    Generates a structured forecasting prompt for ED arrivals,
+    bed occupancy, DTOC pressure, and human impact.
+    """
+    dataset = generate_synthetic_hospital(scenario=scenario, seed=seed)
+
+    prompt = f"""
+You are GPT‑5.6 Sol, an advanced forecasting model.
+
+Use the following synthetic hospital dataset to produce:
+1. ED arrivals forecast (next 12 hours)
+2. Bed occupancy forecast (next 48 hours)
+3. DTOC escalation risk
+4. Human impact analysis
+5. Recommended operational actions
+6. Confidence level
+
+DATASET:
+ED Forecast: {dataset.edForecast}
+Bed Forecast: {dataset.bedForecast}
+KPIs: {dataset.kpis}
+Inpatients: {len(dataset.inpatients)} patients
+Scenario: {scenario}
+
+Respond in structured JSON with keys:
+- ed_forecast
+- bed_forecast
+- dtoc_risk
+- human_impact
+- recommended_actions
+- confidence
+"""
+
+    return {"prompt": prompt}
