@@ -1,13 +1,16 @@
-# routes/synthetic.py
+# api/routers/synthetic.py
 
-from fastapi import APIRouter
 from typing import Optional
 
+from fastapi import APIRouter
+
+from ..decision_latency import calculate_decision_latency_score
+from ..flow_score import calculate_flow_score
+from ..models import SyntheticDataset
 from ..synthetic_data import (
     generate_synthetic_hospital,
     overlay_synthetic,
 )
-from ..models import SyntheticDataset
 
 router = APIRouter()
 
@@ -82,7 +85,7 @@ def get_forecast(
         edForecast=dataset.edForecast,
         bedForecast=dataset.bedForecast,
     )
-from api.decision_latency import calculate_decision_latency_score
+
 
 @router.get("/decision-latency")
 def get_decision_latency(
@@ -94,6 +97,17 @@ def get_decision_latency(
     """
     dataset = generate_synthetic_hospital(scenario=scenario, seed=seed)
     return calculate_decision_latency_score(dataset)
+
+
+@router.get("/flow-score")
+def get_flow_score(
+    scenario: str = "baseline",
+    seed: int = 42,
+) -> dict:
+    """Return the operational Flow Score for the selected scenario."""
+    dataset = generate_synthetic_hospital(scenario=scenario, seed=seed)
+    return calculate_flow_score(dataset)
+
 
 @router.get("/sol-forecast")
 def sol_forecast(
