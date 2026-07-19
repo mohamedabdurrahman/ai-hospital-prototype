@@ -10,11 +10,16 @@ from typing import List, Literal, Optional
 
 from .models import (
     Bed,
+    BedOccupancyProjectionPoint,
     EDPatient,
+    EDArrivalProjectionPoint,
+    ForecastInputs,
     ForecastPoint,
+    HumanImpactMetrics,
     Inpatient,
     KPI,
     SyntheticDataset,
+    TrendPoint,
 )
 
 
@@ -32,6 +37,29 @@ SCENARIO_LABEL = {
     "flu_season": "Flu Season",
     "ward_closure": "Ward Closure",
     "staff_shortage": "Staff Shortage",
+}
+
+SCENARIO_METADATA = {
+    "baseline": {
+        "description": "Normal operating conditions with expected daily variation.",
+        "pressure_level": "low",
+    },
+    "ed_surge": {
+        "description": "Elevated emergency arrivals with increased boarding pressure.",
+        "pressure_level": "high",
+    },
+    "flu_season": {
+        "description": "Seasonal respiratory demand affecting ED, beds, and length of stay.",
+        "pressure_level": "high",
+    },
+    "ward_closure": {
+        "description": "Reduced operational bed capacity following a ward closure.",
+        "pressure_level": "critical",
+    },
+    "staff_shortage": {
+        "description": "Reduced staffing slows assessment, bed turnaround, and discharge.",
+        "pressure_level": "high",
+    },
 }
 
 WARDS = [
@@ -265,6 +293,34 @@ def _pick_triage(r) -> str:
     return "Blue"
 
 
+def _ed_wait_risk(ed: List[EDPatient]) -> float:
+    if not ed:
+        return 0.0
+
+    target_minutes = {
+        "Red": 15,
+        "Orange": 60,
+        "Yellow": 120,
+        "Green": 240,
+        "Blue": 240,
+    }
+    severity_weight = {
+        "Red": 1.0,
+        "Orange": 0.85,
+        "Yellow": 0.65,
+        "Green": 0.35,
+        "Blue": 0.25,
+    }
+    weighted_risk = 0.0
+    total_weight = 0.0
+    for patient in ed:
+        target = target_minutes.get(patient.triage_category, 240)
+        weight = severity_weight.get(patient.triage_category, 0.25)
+        weighted_risk += _clamp(patient.wait_minutes / target, 0.0, 1.0) * weight
+        total_weight += weight
+    return weighted_risk / max(total_weight, 1.0)
+
+
 def _age_for_specialty(r, specialty: str) -> int:
     if specialty == "Geriatrics":
         return 68 + int(r() * 28)
@@ -339,8 +395,10 @@ def generate_synthetic_hospital(
     as_of: Optional[datetime] = None,
 ) -> SyntheticDataset:
     reference_time = as_of or datetime.utcnow()
-    r = rng(seed + _scenario_seed(scenario) * 7919)
-    params = scenario_params(scenario)
+    scenario_name = scenario if scenario in SCENARIO_METADATA else "baseline"
+    scenario_metadata = SCENARIO_METADATA[scenario_name]
+    r = rng(seed + _scenario_seed(scenario_name) * 7919)
+    params = scenario_params(scenario_name)
 
     surge_active = r() < params["surgeChance"]
     surge_multiplier = 1.0 + (0.25 + r() * 0.35 if surge_active else 0.0)
@@ -585,6 +643,61 @@ def generate_synthetic_hospital(
             )
         )
 
+    # Wave 2 forecast inputs use an independent seeded stream so the existing
+    # 12-hour ED and 48-hour bed forecast values remain unchanged.
+    projection_random = rng(
+        seed + _scenario_seed(scenario_name) * 104729 + 202
+    )
+    ed_arrivals_next_24h: List[EDArrivalProjectionPoint] = []
+    bed_occupancy_next_24h: List[BedOccupancyProjectionPoint] = []
+
+    for offset in range(1, 25):
+        forecast_time = reference_time + timedelta(hours=offset)
+        forecast_surge = (
+            surge_multiplier
+            if surge_active and offset < surge_duration_hours
+            else 1.0
+        )
+        arrival_jitter = 0.90 + projection_random() * 0.20
+        projected_arrivals = round(
+            base_hourly_arrivals
+            * _arrival_multiplier(forecast_time)
+            * forecast_surge
+            * arrival_jitter
+        )
+        ed_arrivals_next_24h.append(
+            EDArrivalProjectionPoint(
+                time=forecast_time.isoformat(timespec="minutes"),
+                arrivals=max(0, projected_arrivals),
+            )
+        )
+
+        daily_cycle = math.sin(
+            ((forecast_time.hour - 14) / 24.0) * math.pi * 2
+        ) * 0.025
+        morning_release = -0.018 if 9 <= forecast_time.hour < 13 else 0.0
+        staffing_drift = (
+            max(0.0, params["staffingMul"] - 1.0)
+            * (offset / 24.0)
+            * 0.025
+        )
+        occupancy_noise = (projection_random() - 0.5) * 0.018
+        projected_occupancy = _clamp(
+            occupancy_now
+            + daily_cycle
+            + morning_release
+            + staffing_drift
+            + occupancy_noise,
+            0.0,
+            1.0,
+        )
+        bed_occupancy_next_24h.append(
+            BedOccupancyProjectionPoint(
+                time=forecast_time.isoformat(timespec="minutes"),
+                occupancy=round(projected_occupancy, 3),
+            )
+        )
+
     # Existing KPI labels are retained unchanged for UI and score compatibility.
     actual_awaiting_rate = (
         sum(patient.awaiting_bed for patient in ed) / len(ed) if ed else 0.0
@@ -611,26 +724,155 @@ def generate_synthetic_hospital(
     long_stay_count = sum(
         inpatient.length_of_stay > 14 for inpatient in inpatients
     )
+    inpatient_count = len(inpatients)
     average_los = (
-        sum(inpatient.length_of_stay for inpatient in inpatients) / len(inpatients)
+        sum(inpatient.length_of_stay for inpatient in inpatients) / inpatient_count
         if inpatients
         else 0.0
     )
-    hospital_kpi_score = round(
-        _clamp(
-            100
-            - ed_risk * 40
-            - bed_risk * 35
-            - min(1.0, dtoc_count / 20.0) * 25,
+    ed_wait_risk = _clamp(_ed_wait_risk(ed), 0.0, 1.0)
+    dtoc_pressure_risk = _clamp(
+        (dtoc_count / max(1, inpatient_count)) / 0.15,
+        0.0,
+        1.0,
+    )
+    long_stay_pressure_risk = _clamp(
+        (long_stay_count / max(1, inpatient_count)) / 0.25,
+        0.0,
+        1.0,
+    )
+    cleaning_rate = (
+        sum(bed.type == "cleaning" for bed in operational_beds)
+        / max(1, operational_capacity)
+    )
+    configured_staffing_pressure = _clamp(
+        (params["staffingMul"] - 1.0) / 0.50,
+        0.0,
+        1.0,
+    )
+    staffing_pressure_risk = _clamp(
+        configured_staffing_pressure * 0.70
+        + _clamp(cleaning_rate / 0.08, 0.0, 1.0) * 0.30,
+        0.0,
+        1.0,
+    )
+    patient_flow_risk = _clamp(
+        ed_wait_risk * 0.30
+        + bed_risk * 0.30
+        + dtoc_pressure_risk * 0.25
+        + long_stay_pressure_risk * 0.15,
+        0.0,
+        1.0,
+    )
+    operational_risk_score = round(
+        100
+        * _clamp(
+            ed_wait_risk * 0.25
+            + bed_risk * 0.25
+            + dtoc_pressure_risk * 0.20
+            + long_stay_pressure_risk * 0.15
+            + staffing_pressure_risk * 0.15,
             0.0,
-            100.0,
+            1.0,
         )
+    )
+    hospital_kpi_score = 100 - operational_risk_score
+
+    delayed_bed_hours = sum(
+        patient.wait_minutes / 60.0
+        for patient in ed
+        if patient.awaiting_bed or patient.on_trolley
+    )
+    delayed_bed_hours *= 1.0 + _clamp(
+        (occupancy_now - 0.85) / 0.15,
+        0.0,
+        1.0,
+    ) * 0.50
+
+    delayed_discharge_hours = 0.0
+    for inpatient in inpatients:
+        if inpatient.dtoc:
+            delayed_discharge_hours += 24.0 + min(
+                inpatient.length_of_stay,
+                30,
+            ) * 6.0
+        elif inpatient.discharge_ready:
+            delayed_discharge_hours += 8.0
+        if inpatient.length_of_stay > 14:
+            delayed_discharge_hours += min(
+                inpatient.length_of_stay - 14,
+                60,
+            ) * 2.0
+
+    human_impact = HumanImpactMetrics(
+        delayed_bed_hours=round(delayed_bed_hours, 1),
+        delayed_discharge_hours=round(delayed_discharge_hours, 1),
+        delayed_triage_risk=round(ed_wait_risk, 3),
+        patient_flow_risk=round(patient_flow_risk, 3),
+    )
+
+    dtoc_trend: List[TrendPoint] = []
+    los_trend: List[TrendPoint] = []
+    for offset in range(0, 25, 6):
+        forecast_time = reference_time + timedelta(hours=offset)
+        morning_release = 0.04 if 9 <= forecast_time.hour < 13 else 0.0
+        time_fraction = offset / 24.0
+        dtoc_growth = (
+            dtoc_pressure_risk * 0.08
+            + staffing_pressure_risk * 0.05
+        ) * time_fraction
+        projected_dtoc = max(
+            0.0,
+            dtoc_count * (1.0 + dtoc_growth - morning_release),
+        )
+        dtoc_trend.append(
+            TrendPoint(
+                time=forecast_time.isoformat(timespec="minutes"),
+                value=round(projected_dtoc, 1),
+            )
+        )
+
+        los_growth = (
+            dtoc_pressure_risk * 0.06
+            + long_stay_pressure_risk * 0.05
+            + staffing_pressure_risk * 0.04
+        ) * time_fraction
+        projected_los = max(
+            0.0,
+            average_los * (1.0 + los_growth - morning_release * 0.50),
+        )
+        los_trend.append(
+            TrendPoint(
+                time=forecast_time.isoformat(timespec="minutes"),
+                value=round(projected_los, 1),
+            )
+        )
+
+    forecast_inputs = ForecastInputs(
+        ed_arrivals_next_24h=ed_arrivals_next_24h,
+        bed_occupancy_next_24h=bed_occupancy_next_24h,
+        dtoc_trend=dtoc_trend,
+        los_trend=los_trend,
     )
 
     kpis: List[KPI] = [
         KPI(label="hospital_kpi_score", value=hospital_kpi_score, unit=""),
         KPI(label="ed_overcrowding_risk", value=round(ed_risk, 2)),
+        KPI(label="ed_wait_risk", value=round(ed_wait_risk, 3)),
         KPI(label="bed_pressure_risk", value=round(bed_risk, 2)),
+        KPI(label="dtoc_pressure_risk", value=round(dtoc_pressure_risk, 3)),
+        KPI(
+            label="long_stay_pressure_risk",
+            value=round(long_stay_pressure_risk, 3),
+        ),
+        KPI(
+            label="staffing_pressure_risk",
+            value=round(staffing_pressure_risk, 3),
+        ),
+        KPI(
+            label="operational_risk_score",
+            value=float(operational_risk_score),
+        ),
         KPI(
             label="discharge_opportunity_count",
             value=float(discharge_opportunities),
@@ -649,6 +891,11 @@ def generate_synthetic_hospital(
         bedForecast=bed_forecast,
         as_of=reference_time.isoformat(),
         seed=seed,
+        human_impact=human_impact,
+        forecast_inputs=forecast_inputs,
+        scenario_name=scenario_name,
+        scenario_description=scenario_metadata["description"],
+        scenario_pressure_level=scenario_metadata["pressure_level"],
     )
 
 
@@ -676,4 +923,9 @@ def overlay_synthetic(
         bedForecast=live.bedForecast if live.bedForecast else synthetic.bedForecast,
         as_of=synthetic.as_of,
         seed=synthetic.seed,
+        human_impact=synthetic.human_impact,
+        forecast_inputs=synthetic.forecast_inputs,
+        scenario_name=synthetic.scenario_name,
+        scenario_description=synthetic.scenario_description,
+        scenario_pressure_level=synthetic.scenario_pressure_level,
     )

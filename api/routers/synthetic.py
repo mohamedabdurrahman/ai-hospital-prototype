@@ -98,6 +98,11 @@ def get_forecast(
         bedForecast=dataset.bedForecast,
         as_of=dataset.as_of,
         seed=dataset.seed,
+        human_impact=dataset.human_impact,
+        forecast_inputs=dataset.forecast_inputs,
+        scenario_name=dataset.scenario_name,
+        scenario_description=dataset.scenario_description,
+        scenario_pressure_level=dataset.scenario_pressure_level,
     )
 
 
