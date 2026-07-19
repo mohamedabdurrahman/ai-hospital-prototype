@@ -111,6 +111,21 @@ class SolForecastInputs(BaseModel):
     los_trend_5d: List[float] = Field(default_factory=list)
 
 
+class FlowScoreV2(BaseModel):
+    ed_flow: float = Field(default=0.0, ge=0.0, le=100.0)
+    inpatient_flow: float = Field(default=0.0, ge=0.0, le=100.0)
+    discharge_flow: float = Field(default=0.0, ge=0.0, le=100.0)
+    overall_flow_score: float = Field(default=0.0, ge=0.0, le=100.0)
+
+
+class OperationalNarrative(BaseModel):
+    summary: str = ""
+    ed_status: str = ""
+    inpatient_status: str = ""
+    discharge_status: str = ""
+    risk_summary: str = ""
+
+
 class SolReadyPayload(BaseModel):
     operational_risk: SolOperationalRisk = Field(
         default_factory=SolOperationalRisk
@@ -140,6 +155,16 @@ class SyntheticHealthResponse(BaseModel):
     last_generated: str
 
 
+class SituationReportResponse(BaseModel):
+    as_of: str
+    scenario: str
+    flow_score_v2: FlowScoreV2
+    operational_risk: SolOperationalRisk
+    human_impact: SolHumanImpact
+    recommended_actions: List[str]
+    narrative: OperationalNarrative
+
+
 class SyntheticDataset(BaseModel):
     kpis: List[KPI]
     ed: List[EDPatient]
@@ -158,3 +183,7 @@ class SyntheticDataset(BaseModel):
     validation: SyntheticValidation = Field(default_factory=SyntheticValidation)
     checksum: str = ""
     engine_version: str = "3.5"
+    flow_score_v2: FlowScoreV2 = Field(default_factory=FlowScoreV2)
+    narrative: OperationalNarrative = Field(
+        default_factory=OperationalNarrative
+    )

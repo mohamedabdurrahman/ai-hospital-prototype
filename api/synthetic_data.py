@@ -14,11 +14,13 @@ from .models import (
     BedOccupancyProjectionPoint,
     EDPatient,
     EDArrivalProjectionPoint,
+    FlowScoreV2,
     ForecastInputs,
     ForecastPoint,
     HumanImpactMetrics,
     Inpatient,
     KPI,
+    OperationalNarrative,
     SolForecastInputs,
     SolHumanImpact,
     SolOperationalRisk,
@@ -520,6 +522,203 @@ def _ed_wait_risk(ed: List[EDPatient]) -> float:
     return weighted_risk / max(total_weight, 1.0)
 
 
+def _calculate_flow_score_v2(
+    ed_overcrowding_risk: float,
+    ed_wait_risk: float,
+    boarded_count: int,
+    ed_count: int,
+    bed_pressure_risk: float,
+    average_los: float,
+    long_stay_count: int,
+    inpatient_count: int,
+    dtoc_count: int,
+    discharge_opportunities: int,
+) -> FlowScoreV2:
+    """Calculate deterministic operational flow scores on a 0-100 scale."""
+    boarding_pressure = _clamp(
+        boarded_count / max(1, ed_count),
+        0.0,
+        1.0,
+    )
+    ed_flow = 100.0 * (
+        1.0
+        - _clamp(
+            ed_overcrowding_risk * 0.45
+            + ed_wait_risk * 0.35
+            + boarding_pressure * 0.20,
+            0.0,
+            1.0,
+        )
+    )
+
+    los_pressure = _clamp(average_los / 14.0, 0.0, 1.0)
+    long_stay_pressure = _clamp(
+        (long_stay_count / max(1, inpatient_count)) / 0.25,
+        0.0,
+        1.0,
+    )
+    inpatient_flow = 100.0 * (
+        1.0
+        - _clamp(
+            bed_pressure_risk * 0.50
+            + los_pressure * 0.30
+            + long_stay_pressure * 0.20,
+            0.0,
+            1.0,
+        )
+    )
+
+    dtoc_pressure = _clamp(
+        (dtoc_count / max(1, inpatient_count)) / 0.15,
+        0.0,
+        1.0,
+    )
+    discharge_opportunity_health = _clamp(
+        (discharge_opportunities / max(1, inpatient_count)) / 0.12,
+        0.0,
+        1.0,
+    )
+    discharge_flow = 100.0 * (
+        (1.0 - dtoc_pressure) * 0.65
+        + discharge_opportunity_health * 0.35
+    )
+
+    ed_flow = round(_clamp(ed_flow, 0.0, 100.0), 1)
+    inpatient_flow = round(_clamp(inpatient_flow, 0.0, 100.0), 1)
+    discharge_flow = round(_clamp(discharge_flow, 0.0, 100.0), 1)
+    overall_flow_score = round(
+        ed_flow * 0.35
+        + inpatient_flow * 0.35
+        + discharge_flow * 0.30,
+        1,
+    )
+    return FlowScoreV2(
+        ed_flow=ed_flow,
+        inpatient_flow=inpatient_flow,
+        discharge_flow=discharge_flow,
+        overall_flow_score=overall_flow_score,
+    )
+
+
+def _recommended_actions(
+    scenario_name: str,
+    ed_wait_risk: float,
+    boarded_count: int,
+    bed_pressure_risk: float,
+    cleaning_bed_count: int,
+    dtoc_count: int,
+    long_stay_count: int,
+    staffing_pressure_risk: float,
+    discharge_opportunities: int,
+) -> List[str]:
+    """Return three to seven deterministic, scenario-aware actions."""
+    scenario_actions = {
+        "baseline": "Maintain the current cross-site flow huddle cadence.",
+        "ed_surge": "Activate the ED surge streaming workflow.",
+        "flu_season": "Use the seasonal respiratory demand workflow.",
+        "ward_closure": "Reallocate admissions around the closed ward capacity.",
+        "staff_shortage": "Rebalance available staff toward flow-critical areas.",
+        "winter_pressure": "Activate the winter pressure coordination plan.",
+        "flu_surge": "Use the respiratory demand escalation workflow.",
+        "staffing_shortage": "Rebalance available staff toward flow-critical areas.",
+        "high_dtoc": "Convene the DTOC escalation huddle.",
+        "high_boarding": "Trigger the ED boarding reduction protocol.",
+        "mixed_pressure": "Activate the whole-hospital pressure response plan.",
+    }
+    actions: List[str] = []
+
+    def add(action: str) -> None:
+        if action not in actions and len(actions) < 7:
+            actions.append(action)
+
+    add(scenario_actions[scenario_name])
+    if ed_wait_risk >= 0.50:
+        add("Deploy rapid triage and streaming to reduce current ED waits.")
+    if boarded_count > 0:
+        add("Review boarded ED patients in the next operational flow huddle.")
+    if bed_pressure_risk >= 0.75:
+        add("Review bed allocation across operational wards.")
+    if cleaning_bed_count > 0:
+        add("Prioritize turnaround for beds already awaiting cleaning.")
+    if dtoc_count > 0:
+        add("Escalate DTOC barriers through the discharge coordination huddle.")
+    if long_stay_count > 0:
+        add("Review patients with LOS over 14 days for operational blockers.")
+    if staffing_pressure_risk >= 0.35:
+        add("Rebalance available staffing toward ED flow and bed turnaround.")
+    if discharge_opportunities > 0:
+        add("Prioritize discharge-ready patients in the operational huddle.")
+
+    fallback_actions = (
+        "Confirm current ED, bed, and discharge constraints at the flow huddle.",
+        "Review the current bed turnaround queue with site operations.",
+        "Track discharge opportunities through the daily coordination cycle.",
+    )
+    for action in fallback_actions:
+        if len(actions) >= 3:
+            break
+        add(action)
+    return actions
+
+
+def _risk_band(score: float) -> str:
+    if score < 40:
+        return "low"
+    if score < 70:
+        return "moderate"
+    if score < 85:
+        return "high"
+    return "severe"
+
+
+def _operational_narrative(
+    scenario_name: str,
+    scenario_pressure_level: str,
+    flow_score_v2: FlowScoreV2,
+    ed_count: int,
+    ed_risk_score: int,
+    ed_delays_over_4h: int,
+    boarded_count: int,
+    occupied_bed_count: int,
+    operational_capacity: int,
+    bed_risk_score: int,
+    long_stay_count: int,
+    dtoc_count: int,
+    discharge_opportunities: int,
+    overall_risk_score: int,
+    staffing_risk_score: int,
+    clinical_risk_level: str,
+) -> OperationalNarrative:
+    """Build a short factual narrative without advice or predictions."""
+    return OperationalNarrative(
+        summary=(
+            f"{SCENARIO_LABEL[scenario_name]} is active at "
+            f"{scenario_pressure_level} pressure with an overall flow score "
+            f"of {flow_score_v2.overall_flow_score:.1f}/100."
+        ),
+        ed_status=(
+            f"ED pressure is {_risk_band(ed_risk_score)} with {ed_count} "
+            f"patients, {ed_delays_over_4h} waits over 4 hours, and "
+            f"{boarded_count} boarded patients."
+        ),
+        inpatient_status=(
+            f"Inpatient bed pressure is {_risk_band(bed_risk_score)} with "
+            f"{occupied_bed_count} of {operational_capacity} operational beds "
+            f"occupied and {long_stay_count} long-stay patients."
+        ),
+        discharge_status=(
+            f"Discharge flow is {_risk_band(100.0 - flow_score_v2.discharge_flow)} "
+            f"pressure with {dtoc_count} DTOC patients and "
+            f"{discharge_opportunities} discharge opportunities."
+        ),
+        risk_summary=(
+            f"Overall operational risk is {overall_risk_score}/100 "
+            f"({clinical_risk_level}); staffing risk is "
+            f"{staffing_risk_score}/100."
+        ),
+    )
+
+
 def _dataset_checksum(dataset: SyntheticDataset) -> str:
     total_ed_arrivals = sum(
         point.arrivals
@@ -552,12 +751,25 @@ def _validate_dataset(dataset: SyntheticDataset, params: dict) -> SyntheticValid
         "validation",
         "checksum",
         "engine_version",
+        "flow_score_v2",
+        "narrative",
     }
+    flow_values = (
+        dataset.flow_score_v2.ed_flow,
+        dataset.flow_score_v2.inpatient_flow,
+        dataset.flow_score_v2.discharge_flow,
+        dataset.flow_score_v2.overall_flow_score,
+    )
+    narrative_values = dataset.narrative.dict().values()
     json_structure_ok = (
         required_top_level <= set(payload)
         and dataset.engine_version == ENGINE_VERSION
         and len(dataset.checksum) == 64
-        and dataset.sol_ready.recommended_actions == []
+        and 3 <= len(dataset.sol_ready.recommended_actions) <= 7
+        and len(dataset.sol_ready.recommended_actions)
+        == len(set(dataset.sol_ready.recommended_actions))
+        and all(0.0 <= value <= 100.0 for value in flow_values)
+        and all(bool(value) for value in narrative_values)
     )
 
     operational_beds = [bed for bed in dataset.beds if bed.type != "closed"]
@@ -617,6 +829,7 @@ def _validate_dataset(dataset: SyntheticDataset, params: dict) -> SyntheticValid
         all(0.0 <= kpi_values.get(label, -1.0) <= 1.0 for label in unit_interval_kpis)
         and all(0.0 <= kpi_values.get(label, -1.0) <= 100.0 for label in score_kpis)
         and all(kpi_values.get(label, -1.0) >= 0.0 for label in count_kpis)
+        and all(0.0 <= value <= 100.0 for value in flow_values)
     )
 
     wave_two_forecast = dataset.forecast_inputs
@@ -1238,9 +1451,10 @@ def generate_synthetic_hospital(
         + sol_staffing_risk_score * 0.15
     )
 
-    patients_delayed_over_4h = sum(
+    ed_delays_over_4h = sum(
         patient.wait_minutes > 240 for patient in ed
-    ) + sum(
+    )
+    patients_delayed_over_4h = ed_delays_over_4h + sum(
         inpatient.dtoc
         or inpatient.discharge_ready
         or inpatient.length_of_stay > 14
@@ -1256,12 +1470,57 @@ def generate_synthetic_hospital(
         patient.on_trolley or patient.awaiting_bed for patient in ed
     )
 
+    flow_score_v2 = _calculate_flow_score_v2(
+        ed_overcrowding_risk=ed_risk,
+        ed_wait_risk=ed_wait_risk,
+        boarded_count=patients_boarded_in_ed,
+        ed_count=len(ed),
+        bed_pressure_risk=bed_risk,
+        average_los=average_los,
+        long_stay_count=long_stay_count,
+        inpatient_count=inpatient_count,
+        dtoc_count=dtoc_count,
+        discharge_opportunities=discharge_opportunities,
+    )
+
     if sol_overall_risk_score < 40:
         clinical_risk_level = "low"
     elif sol_overall_risk_score < 70:
         clinical_risk_level = "medium"
     else:
         clinical_risk_level = "high"
+
+    recommended_actions = _recommended_actions(
+        scenario_name=scenario_name,
+        ed_wait_risk=ed_wait_risk,
+        boarded_count=patients_boarded_in_ed,
+        bed_pressure_risk=bed_risk,
+        cleaning_bed_count=sum(
+            bed.type == "cleaning" for bed in operational_beds
+        ),
+        dtoc_count=dtoc_count,
+        long_stay_count=long_stay_count,
+        staffing_pressure_risk=staffing_pressure_risk,
+        discharge_opportunities=discharge_opportunities,
+    )
+    narrative = _operational_narrative(
+        scenario_name=scenario_name,
+        scenario_pressure_level=scenario_metadata["pressure_level"],
+        flow_score_v2=flow_score_v2,
+        ed_count=len(ed),
+        ed_risk_score=sol_ed_risk_score,
+        ed_delays_over_4h=ed_delays_over_4h,
+        boarded_count=patients_boarded_in_ed,
+        occupied_bed_count=len(occupied_beds),
+        operational_capacity=operational_capacity,
+        bed_risk_score=sol_bed_risk_score,
+        long_stay_count=long_stay_count,
+        dtoc_count=dtoc_count,
+        discharge_opportunities=discharge_opportunities,
+        overall_risk_score=sol_overall_risk_score,
+        staffing_risk_score=sol_staffing_risk_score,
+        clinical_risk_level=clinical_risk_level,
+    )
 
     dtoc_trend_5d: List[int] = []
     los_trend_5d: List[float] = []
@@ -1324,7 +1583,7 @@ def generate_synthetic_hospital(
             dtoc_trend_5d=dtoc_trend_5d,
             los_trend_5d=los_trend_5d,
         ),
-        recommended_actions=[],
+        recommended_actions=recommended_actions,
     )
 
     kpis: List[KPI] = [
@@ -1370,6 +1629,8 @@ def generate_synthetic_hospital(
         scenario_pressure_level=scenario_metadata["pressure_level"],
         sol_ready=sol_ready,
         engine_version=ENGINE_VERSION,
+        flow_score_v2=flow_score_v2,
+        narrative=narrative,
     )
     dataset.checksum = _dataset_checksum(dataset)
     dataset.validation = _validate_dataset(dataset, params)
@@ -1410,4 +1671,6 @@ def overlay_synthetic(
         validation=synthetic.validation,
         checksum=synthetic.checksum,
         engine_version=synthetic.engine_version,
+        flow_score_v2=synthetic.flow_score_v2,
+        narrative=synthetic.narrative,
     )

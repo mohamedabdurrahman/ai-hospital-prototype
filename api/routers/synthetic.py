@@ -7,7 +7,11 @@ from fastapi import APIRouter
 
 from ..decision_latency import calculate_decision_latency_score
 from ..flow_score import calculate_flow_score
-from ..models import SyntheticDataset, SyntheticHealthResponse
+from ..models import (
+    SituationReportResponse,
+    SyntheticDataset,
+    SyntheticHealthResponse,
+)
 from ..synthetic_data import (
     ENGINE_VERSION,
     generate_synthetic_hospital,
@@ -125,6 +129,31 @@ def get_forecast(
         validation=dataset.validation,
         checksum=dataset.checksum,
         engine_version=dataset.engine_version,
+        flow_score_v2=dataset.flow_score_v2,
+        narrative=dataset.narrative,
+    )
+
+
+@router.get("/situation-report", response_model=SituationReportResponse)
+def get_situation_report(
+    scenario: str = "baseline",
+    seed: int = 42,
+    as_of: Optional[datetime] = None,
+) -> SituationReportResponse:
+    """Return the deterministic judge-ready operational briefing."""
+    dataset = generate_synthetic_hospital(
+        scenario=scenario,
+        seed=seed,
+        as_of=as_of,
+    )
+    return SituationReportResponse(
+        as_of=dataset.as_of,
+        scenario=dataset.scenario_name,
+        flow_score_v2=dataset.flow_score_v2,
+        operational_risk=dataset.sol_ready.operational_risk,
+        human_impact=dataset.sol_ready.human_impact,
+        recommended_actions=dataset.sol_ready.recommended_actions,
+        narrative=dataset.narrative,
     )
 
 
