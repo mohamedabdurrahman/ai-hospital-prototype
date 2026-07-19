@@ -7,14 +7,26 @@ from fastapi import APIRouter
 
 from ..decision_latency import calculate_decision_latency_score
 from ..flow_score import calculate_flow_score
-from ..models import SyntheticDataset
+from ..models import SyntheticDataset, SyntheticHealthResponse
 from ..synthetic_data import (
+    ENGINE_VERSION,
     generate_synthetic_hospital,
+    get_last_generated,
     overlay_synthetic,
 )
 
 
 router = APIRouter()
+
+
+@router.get("/synthetic/health", response_model=SyntheticHealthResponse)
+def get_synthetic_health() -> SyntheticHealthResponse:
+    """Return synthetic engine readiness and latest generation metadata."""
+    return SyntheticHealthResponse(
+        status="ok",
+        engine_version=ENGINE_VERSION,
+        last_generated=get_last_generated(),
+    )
 
 
 @router.get("/synthetic", response_model=SyntheticDataset)
@@ -110,6 +122,9 @@ def get_forecast(
         scenario_description=dataset.scenario_description,
         scenario_pressure_level=dataset.scenario_pressure_level,
         sol_ready=dataset.sol_ready,
+        validation=dataset.validation,
+        checksum=dataset.checksum,
+        engine_version=dataset.engine_version,
     )
 
 

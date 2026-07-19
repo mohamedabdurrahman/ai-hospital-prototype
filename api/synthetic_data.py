@@ -5,6 +5,7 @@ behaviour while preserving every existing response field.
 """
 
 from datetime import datetime, timedelta
+import hashlib
 import math
 from typing import List, Literal, Optional
 
@@ -24,8 +25,13 @@ from .models import (
     SolReadyPayload,
     SolScenarioContext,
     SyntheticDataset,
+    SyntheticValidation,
     TrendPoint,
 )
+
+
+ENGINE_VERSION = "3.5"
+_LAST_GENERATED: Optional[str] = None
 
 
 SimulationScenario = Literal[
@@ -256,6 +262,11 @@ HOURLY_ARRIVAL_MULTIPLIERS = (
 
 def _clamp(value: float, lower: float, upper: float) -> float:
     return max(lower, min(upper, value))
+
+
+def get_last_generated() -> str:
+    """Return the latest generated dataset timestamp for health reporting."""
+    return _LAST_GENERATED or datetime.utcnow().isoformat()
 
 
 def rng(seed: int):
@@ -509,6 +520,149 @@ def _ed_wait_risk(ed: List[EDPatient]) -> float:
     return weighted_risk / max(total_weight, 1.0)
 
 
+def _dataset_checksum(dataset: SyntheticDataset) -> str:
+    total_ed_arrivals = sum(
+        point.arrivals
+        for point in dataset.forecast_inputs.ed_arrivals_next_24h
+    )
+    checksum_input = (
+        f"{dataset.seed}|{dataset.scenario_name}|"
+        f"{total_ed_arrivals}|{len(dataset.beds)}"
+    )
+    return hashlib.sha256(checksum_input.encode("utf-8")).hexdigest()
+
+
+def _validate_dataset(dataset: SyntheticDataset, params: dict) -> SyntheticValidation:
+    payload = dataset.dict()
+    required_top_level = {
+        "kpis",
+        "ed",
+        "beds",
+        "inpatients",
+        "edForecast",
+        "bedForecast",
+        "as_of",
+        "seed",
+        "human_impact",
+        "forecast_inputs",
+        "scenario_name",
+        "scenario_description",
+        "scenario_pressure_level",
+        "sol_ready",
+        "validation",
+        "checksum",
+        "engine_version",
+    }
+    json_structure_ok = (
+        required_top_level <= set(payload)
+        and dataset.engine_version == ENGINE_VERSION
+        and len(dataset.checksum) == 64
+        and dataset.sol_ready.recommended_actions == []
+    )
+
+    operational_beds = [bed for bed in dataset.beds if bed.type != "closed"]
+    occupied_beds = [bed for bed in operational_beds if bed.occupied]
+    capacity_limits_ok = (
+        len(occupied_beds) <= len(operational_beds)
+        and len(dataset.inpatients) == len(occupied_beds)
+        and len(dataset.beds) == len({bed.bed_id for bed in dataset.beds})
+        and not any(
+            bed.occupied for bed in dataset.beds if bed.type == "closed"
+        )
+    )
+
+    baseline_params = scenario_params("baseline")
+    effect_keys = {
+        "edMul",
+        "trolleyMul",
+        "occTarget",
+        "losMul",
+        "cleaningMul",
+        "dtocMul",
+        "staffingMul",
+        "boardingMul",
+        "waitMul",
+        "dischargeThroughputMul",
+    }
+    has_expected_modifier = dataset.scenario_name == "baseline" or any(
+        params[key] != baseline_params[key] for key in effect_keys
+    )
+    context = dataset.sol_ready.scenario_context
+    scenario_effects_ok = (
+        dataset.scenario_name in SCENARIO_METADATA
+        and has_expected_modifier
+        and context.scenario_name == dataset.scenario_name
+        and context.scenario_pressure_level == dataset.scenario_pressure_level
+        and context.scenario_description == dataset.scenario_description
+        and bool(context.scenario_drivers)
+    )
+
+    kpi_values = {kpi.label: kpi.value for kpi in dataset.kpis}
+    unit_interval_kpis = {
+        "ed_overcrowding_risk",
+        "ed_wait_risk",
+        "bed_pressure_risk",
+        "dtoc_pressure_risk",
+        "long_stay_pressure_risk",
+        "staffing_pressure_risk",
+    }
+    score_kpis = {"hospital_kpi_score", "operational_risk_score"}
+    count_kpis = {
+        "discharge_opportunity_count",
+        "dtoc_count",
+        "long_stay_count",
+        "average_length_of_stay",
+    }
+    kpi_ranges_ok = (
+        all(0.0 <= kpi_values.get(label, -1.0) <= 1.0 for label in unit_interval_kpis)
+        and all(0.0 <= kpi_values.get(label, -1.0) <= 100.0 for label in score_kpis)
+        and all(kpi_values.get(label, -1.0) >= 0.0 for label in count_kpis)
+    )
+
+    wave_two_forecast = dataset.forecast_inputs
+    sol_forecast = dataset.sol_ready.forecast_inputs
+    forecast_lengths_ok = (
+        len(dataset.edForecast) == 12
+        and len(dataset.bedForecast) == 24
+        and len(wave_two_forecast.ed_arrivals_next_24h) == 24
+        and len(wave_two_forecast.bed_occupancy_next_24h) == 24
+        and len(wave_two_forecast.dtoc_trend) == 5
+        and len(wave_two_forecast.los_trend) == 5
+        and len(sol_forecast.ed_arrivals_next_24h) == 24
+        and len(sol_forecast.bed_occupancy_next_24h) == 24
+        and len(sol_forecast.dtoc_trend_5d) == 5
+        and len(sol_forecast.los_trend_5d) == 5
+    )
+
+    legacy_kpis = {
+        "hospital_kpi_score",
+        "ed_overcrowding_risk",
+        "bed_pressure_risk",
+        "discharge_opportunity_count",
+        "dtoc_count",
+        "long_stay_count",
+        "average_length_of_stay",
+    }
+    backward_compatibility_ok = (
+        legacy_kpis <= set(kpi_values)
+        and isinstance(dataset.kpis, list)
+        and isinstance(dataset.ed, list)
+        and isinstance(dataset.beds, list)
+        and isinstance(dataset.inpatients, list)
+        and isinstance(dataset.edForecast, list)
+        and isinstance(dataset.bedForecast, list)
+    )
+
+    return SyntheticValidation(
+        json_structure_ok=json_structure_ok,
+        capacity_limits_ok=capacity_limits_ok,
+        scenario_effects_ok=scenario_effects_ok,
+        kpi_ranges_ok=kpi_ranges_ok,
+        forecast_lengths_ok=forecast_lengths_ok,
+        backward_compatibility_ok=backward_compatibility_ok,
+    )
+
+
 def _age_for_specialty(r, specialty: str) -> int:
     if specialty == "Geriatrics":
         return 68 + int(r() * 28)
@@ -582,6 +736,8 @@ def generate_synthetic_hospital(
     seed: int = 42,
     as_of: Optional[datetime] = None,
 ) -> SyntheticDataset:
+    global _LAST_GENERATED
+
     reference_time = as_of or datetime.utcnow()
     scenario_name = scenario if scenario in SCENARIO_METADATA else "baseline"
     scenario_metadata = SCENARIO_METADATA[scenario_name]
@@ -1198,7 +1354,7 @@ def generate_synthetic_hospital(
         KPI(label="average_length_of_stay", value=round(average_los, 1), unit="d"),
     ]
 
-    return SyntheticDataset(
+    dataset = SyntheticDataset(
         kpis=kpis,
         ed=ed,
         beds=beds,
@@ -1213,7 +1369,12 @@ def generate_synthetic_hospital(
         scenario_description=scenario_metadata["description"],
         scenario_pressure_level=scenario_metadata["pressure_level"],
         sol_ready=sol_ready,
+        engine_version=ENGINE_VERSION,
     )
+    dataset.checksum = _dataset_checksum(dataset)
+    dataset.validation = _validate_dataset(dataset, params)
+    _LAST_GENERATED = dataset.as_of
+    return dataset
 
 
 def overlay_synthetic(
@@ -1246,4 +1407,7 @@ def overlay_synthetic(
         scenario_description=synthetic.scenario_description,
         scenario_pressure_level=synthetic.scenario_pressure_level,
         sol_ready=synthetic.sol_ready,
+        validation=synthetic.validation,
+        checksum=synthetic.checksum,
+        engine_version=synthetic.engine_version,
     )

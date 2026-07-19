@@ -125,6 +125,21 @@ class SolReadyPayload(BaseModel):
     recommended_actions: List[str] = Field(default_factory=list)
 
 
+class SyntheticValidation(BaseModel):
+    json_structure_ok: bool = False
+    capacity_limits_ok: bool = False
+    scenario_effects_ok: bool = False
+    kpi_ranges_ok: bool = False
+    forecast_lengths_ok: bool = False
+    backward_compatibility_ok: bool = False
+
+
+class SyntheticHealthResponse(BaseModel):
+    status: Literal["ok"] = "ok"
+    engine_version: str = "3.5"
+    last_generated: str
+
+
 class SyntheticDataset(BaseModel):
     kpis: List[KPI]
     ed: List[EDPatient]
@@ -140,3 +155,6 @@ class SyntheticDataset(BaseModel):
     scenario_description: str = "Normal operating conditions."
     scenario_pressure_level: str = "low"
     sol_ready: SolReadyPayload = Field(default_factory=SolReadyPayload)
+    validation: SyntheticValidation = Field(default_factory=SyntheticValidation)
+    checksum: str = ""
+    engine_version: str = "3.5"
