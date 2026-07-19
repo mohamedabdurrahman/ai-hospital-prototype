@@ -118,12 +118,32 @@ class FlowScoreV2(BaseModel):
     overall_flow_score: float = Field(default=0.0, ge=0.0, le=100.0)
 
 
+class FlowScoreV3(BaseModel):
+    ed_flow: float = Field(default=0.0, ge=0.0, le=100.0)
+    inpatient_flow: float = Field(default=0.0, ge=0.0, le=100.0)
+    discharge_flow: float = Field(default=0.0, ge=0.0, le=100.0)
+    staffing_flow: float = Field(default=0.0, ge=0.0, le=100.0)
+    overall_flow_score: float = Field(default=0.0, ge=0.0, le=100.0)
+
+
+class PrioritizedAction(BaseModel):
+    action: str
+    priority: Literal["high", "medium", "low"]
+
+
 class OperationalNarrative(BaseModel):
     summary: str = ""
     ed_status: str = ""
     inpatient_status: str = ""
     discharge_status: str = ""
     risk_summary: str = ""
+
+
+class JudgeMode(BaseModel):
+    headline: str = ""
+    key_risks: List[str] = Field(default_factory=list)
+    key_actions: List[PrioritizedAction] = Field(default_factory=list)
+    flow_summary: str = ""
 
 
 class SolReadyPayload(BaseModel):
@@ -138,6 +158,7 @@ class SolReadyPayload(BaseModel):
         default_factory=SolForecastInputs
     )
     recommended_actions: List[str] = Field(default_factory=list)
+    prioritized_actions: List[PrioritizedAction] = Field(default_factory=list)
 
 
 class SyntheticValidation(BaseModel):
@@ -159,10 +180,23 @@ class SituationReportResponse(BaseModel):
     as_of: str
     scenario: str
     flow_score_v2: FlowScoreV2
+    flow_score_v3: FlowScoreV3 = Field(default_factory=FlowScoreV3)
     operational_risk: SolOperationalRisk
     human_impact: SolHumanImpact
     recommended_actions: List[str]
+    prioritized_actions: List[PrioritizedAction] = Field(default_factory=list)
     narrative: OperationalNarrative
+    judge_mode: JudgeMode = Field(default_factory=JudgeMode)
+    executive_summary: str = ""
+    scenario_context: SolScenarioContext = Field(
+        default_factory=SolScenarioContext
+    )
+    forecast_inputs: SolForecastInputs = Field(
+        default_factory=SolForecastInputs
+    )
+    checksum: str = ""
+    validation: SyntheticValidation = Field(default_factory=SyntheticValidation)
+    engine_version: str = "3.5"
 
 
 class SyntheticDataset(BaseModel):
@@ -187,3 +221,6 @@ class SyntheticDataset(BaseModel):
     narrative: OperationalNarrative = Field(
         default_factory=OperationalNarrative
     )
+    flow_score_v3: FlowScoreV3 = Field(default_factory=FlowScoreV3)
+    judge_mode: JudgeMode = Field(default_factory=JudgeMode)
+    executive_summary: str = ""

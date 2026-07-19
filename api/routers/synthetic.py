@@ -131,6 +131,9 @@ def get_forecast(
         engine_version=dataset.engine_version,
         flow_score_v2=dataset.flow_score_v2,
         narrative=dataset.narrative,
+        flow_score_v3=dataset.flow_score_v3,
+        judge_mode=dataset.judge_mode,
+        executive_summary=dataset.executive_summary,
     )
 
 
@@ -150,10 +153,19 @@ def get_situation_report(
         as_of=dataset.as_of,
         scenario=dataset.scenario_name,
         flow_score_v2=dataset.flow_score_v2,
+        flow_score_v3=dataset.flow_score_v3,
         operational_risk=dataset.sol_ready.operational_risk,
         human_impact=dataset.sol_ready.human_impact,
         recommended_actions=dataset.sol_ready.recommended_actions,
+        prioritized_actions=dataset.sol_ready.prioritized_actions,
         narrative=dataset.narrative,
+        judge_mode=dataset.judge_mode,
+        executive_summary=dataset.executive_summary,
+        scenario_context=dataset.sol_ready.scenario_context,
+        forecast_inputs=dataset.sol_ready.forecast_inputs,
+        checksum=dataset.checksum,
+        validation=dataset.validation,
+        engine_version=dataset.engine_version,
     )
 
 

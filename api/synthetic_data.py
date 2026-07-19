@@ -7,7 +7,7 @@ behaviour while preserving every existing response field.
 from datetime import datetime, timedelta
 import hashlib
 import math
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Tuple
 
 from .models import (
     Bed,
@@ -15,12 +15,15 @@ from .models import (
     EDPatient,
     EDArrivalProjectionPoint,
     FlowScoreV2,
+    FlowScoreV3,
     ForecastInputs,
     ForecastPoint,
     HumanImpactMetrics,
     Inpatient,
+    JudgeMode,
     KPI,
     OperationalNarrative,
+    PrioritizedAction,
     SolForecastInputs,
     SolHumanImpact,
     SolOperationalRisk,
@@ -600,9 +603,111 @@ def _calculate_flow_score_v2(
     )
 
 
+def _calculate_flow_score_v3(
+    ed: List[EDPatient],
+    ed_overcrowding_risk: float,
+    boarded_count: int,
+    bed_pressure_risk: float,
+    inpatients: List[Inpatient],
+    long_stay_count: int,
+    dtoc_count: int,
+    discharge_opportunities: int,
+    staffing_pressure_risk: float,
+) -> FlowScoreV3:
+    """Calculate scenario-responsive flow from deterministic current state."""
+    ed_count = len(ed)
+    four_hour_breach_rate = (
+        sum(patient.wait_minutes > 240 for patient in ed)
+        / max(1, ed_count)
+    )
+    boarding_rate = boarded_count / max(1, ed_count)
+    ed_pressure = _clamp(
+        four_hour_breach_rate * 0.40
+        + boarding_rate * 0.35
+        + ed_overcrowding_risk * 0.25,
+        0.0,
+        1.0,
+    )
+    ed_flow = 100.0 * (1.0 - ed_pressure)
+
+    inpatient_count = len(inpatients)
+    excess_los_pressure = _clamp(
+        sum(
+            max(0, inpatient.length_of_stay - 14)
+            for inpatient in inpatients
+        )
+        / max(1, inpatient_count * 30),
+        0.0,
+        1.0,
+    )
+    long_stay_pressure = _clamp(
+        (long_stay_count / max(1, inpatient_count)) / 0.25,
+        0.0,
+        1.0,
+    )
+    inpatient_pressure = _clamp(
+        bed_pressure_risk * 0.45
+        + excess_los_pressure * 0.30
+        + long_stay_pressure * 0.25,
+        0.0,
+        1.0,
+    )
+    inpatient_flow = 100.0 * (1.0 - inpatient_pressure)
+
+    excess_dtoc_pressure = _clamp(
+        max(0, dtoc_count - 20) / 20.0,
+        0.0,
+        1.0,
+    )
+    discharge_opportunity_health = _clamp(
+        (discharge_opportunities / max(1, inpatient_count)) / 0.12,
+        0.0,
+        1.0,
+    )
+    discharge_pressure = _clamp(
+        excess_dtoc_pressure * 0.65
+        + (1.0 - discharge_opportunity_health) * 0.35,
+        0.0,
+        1.0,
+    )
+    discharge_flow = 100.0 * (1.0 - discharge_pressure)
+
+    staffing_excess_pressure = _clamp(
+        (staffing_pressure_risk - 0.30) / 0.70,
+        0.0,
+        1.0,
+    )
+    staffing_flow = 100.0 * (1.0 - staffing_excess_pressure)
+
+    ed_flow = round(_clamp(ed_flow, 0.0, 100.0), 1)
+    inpatient_flow = round(_clamp(inpatient_flow, 0.0, 100.0), 1)
+    discharge_flow = round(_clamp(discharge_flow, 0.0, 100.0), 1)
+    staffing_flow = round(_clamp(staffing_flow, 0.0, 100.0), 1)
+    overall_flow_score = round(
+        ed_flow * 0.30
+        + inpatient_flow * 0.30
+        + discharge_flow * 0.25
+        + staffing_flow * 0.15,
+        1,
+    )
+    return FlowScoreV3(
+        ed_flow=ed_flow,
+        inpatient_flow=inpatient_flow,
+        discharge_flow=discharge_flow,
+        staffing_flow=staffing_flow,
+        overall_flow_score=overall_flow_score,
+    )
+
+
+def _highest_priority(*priorities: str) -> str:
+    priority_rank = {"high": 0, "medium": 1, "low": 2}
+    return min(priorities, key=priority_rank.__getitem__)
+
+
 def _recommended_actions(
     scenario_name: str,
     ed_wait_risk: float,
+    max_ed_wait_minutes: int,
     boarded_count: int,
     bed_pressure_risk: float,
     cleaning_bed_count: int,
@@ -610,8 +715,8 @@ def _recommended_actions(
     long_stay_count: int,
     staffing_pressure_risk: float,
     discharge_opportunities: int,
-) -> List[str]:
-    """Return three to seven deterministic, scenario-aware actions."""
+) -> Tuple[List[str], List[PrioritizedAction]]:
+    """Return legacy strings and typed actions in deterministic priority order."""
     scenario_actions = {
         "baseline": "Maintain the current cross-site flow huddle cadence.",
         "ed_surge": "Activate the ED surge streaming workflow.",
@@ -625,29 +730,81 @@ def _recommended_actions(
         "high_boarding": "Trigger the ED boarding reduction protocol.",
         "mixed_pressure": "Activate the whole-hospital pressure response plan.",
     }
-    actions: List[str] = []
+    if max_ed_wait_minutes > 300:
+        ed_priority = "high"
+    elif max_ed_wait_minutes >= 180:
+        ed_priority = "medium"
+    else:
+        ed_priority = "low"
 
-    def add(action: str) -> None:
-        if action not in actions and len(actions) < 7:
-            actions.append(action)
+    if dtoc_count > 25:
+        dtoc_priority = "high"
+    elif dtoc_count >= 15:
+        dtoc_priority = "medium"
+    else:
+        dtoc_priority = "low"
 
-    add(scenario_actions[scenario_name])
+    if bed_pressure_risk > 0.85:
+        bed_priority = "high"
+    elif bed_pressure_risk >= 0.75:
+        bed_priority = "medium"
+    else:
+        bed_priority = "low"
+
+    staffing_priority = (
+        "high" if staffing_pressure_risk > 0.40 else "low"
+    )
+    scenario_priority = _highest_priority(
+        ed_priority,
+        dtoc_priority,
+        bed_priority,
+        staffing_priority,
+    )
+
+    actions: List[PrioritizedAction] = []
+
+    def add(action: str, priority: str) -> None:
+        if action not in {item.action for item in actions}:
+            actions.append(PrioritizedAction(action=action, priority=priority))
+
+    add(scenario_actions[scenario_name], scenario_priority)
     if ed_wait_risk >= 0.50:
-        add("Deploy rapid triage and streaming to reduce current ED waits.")
+        add(
+            "Deploy rapid triage and streaming to reduce current ED waits.",
+            ed_priority,
+        )
     if boarded_count > 0:
-        add("Review boarded ED patients in the next operational flow huddle.")
+        add(
+            "Review boarded ED patients in the next operational flow huddle.",
+            ed_priority,
+        )
     if bed_pressure_risk >= 0.75:
-        add("Review bed allocation across operational wards.")
+        add("Review bed allocation across operational wards.", bed_priority)
     if cleaning_bed_count > 0:
-        add("Prioritize turnaround for beds already awaiting cleaning.")
+        add(
+            "Prioritize turnaround for beds already awaiting cleaning.",
+            bed_priority,
+        )
     if dtoc_count > 0:
-        add("Escalate DTOC barriers through the discharge coordination huddle.")
+        add(
+            "Escalate DTOC barriers through the discharge coordination huddle.",
+            dtoc_priority,
+        )
     if long_stay_count > 0:
-        add("Review patients with LOS over 14 days for operational blockers.")
+        add(
+            "Review patients with LOS over 14 days for operational blockers.",
+            "low",
+        )
     if staffing_pressure_risk >= 0.35:
-        add("Rebalance available staffing toward ED flow and bed turnaround.")
+        add(
+            "Rebalance available staffing toward ED flow and bed turnaround.",
+            staffing_priority,
+        )
     if discharge_opportunities > 0:
-        add("Prioritize discharge-ready patients in the operational huddle.")
+        add(
+            "Prioritize discharge-ready patients in the operational huddle.",
+            dtoc_priority,
+        )
 
     fallback_actions = (
         "Confirm current ED, bed, and discharge constraints at the flow huddle.",
@@ -657,8 +814,15 @@ def _recommended_actions(
     for action in fallback_actions:
         if len(actions) >= 3:
             break
-        add(action)
-    return actions
+        add(action, "low")
+
+    priority_rank = {"high": 0, "medium": 1, "low": 2}
+    prioritized_actions = sorted(
+        actions,
+        key=lambda item: priority_rank[item.priority],
+    )[:7]
+    recommended_actions = [item.action for item in prioritized_actions]
+    return recommended_actions, prioritized_actions
 
 
 def _risk_band(score: float) -> str:
@@ -719,6 +883,104 @@ def _operational_narrative(
     )
 
 
+def _judge_mode_and_executive_summary(
+    scenario_name: str,
+    scenario_pressure_level: str,
+    flow_score_v3: FlowScoreV3,
+    prioritized_actions: List[PrioritizedAction],
+    overall_risk_score: int,
+    ed_risk_score: int,
+    bed_risk_score: int,
+    dtoc_risk_score: int,
+    los_risk_score: int,
+    staffing_risk_score: int,
+    patients_delayed_over_4h: int,
+    patients_boarded_in_ed: int,
+    total_delayed_bed_hours: float,
+    total_delayed_discharge_hours: float,
+    dtoc_count: int,
+    long_stay_count: int,
+) -> Tuple[JudgeMode, str]:
+    """Build the deterministic judge briefing and executive summary."""
+    risk_candidates = [
+        (
+            ed_risk_score,
+            f"ED risk is {ed_risk_score}/100 with "
+            f"{patients_delayed_over_4h} patients delayed over 4 hours.",
+        ),
+        (
+            bed_risk_score,
+            f"Bed risk is {bed_risk_score}/100 with "
+            f"{patients_boarded_in_ed} patients boarded in ED and "
+            f"{total_delayed_bed_hours:.1f} delayed bed hours.",
+        ),
+        (
+            dtoc_risk_score,
+            f"DTOC risk is {dtoc_risk_score}/100 with {dtoc_count} DTOC "
+            f"patients and {total_delayed_discharge_hours:.1f} delayed "
+            "discharge hours.",
+        ),
+        (
+            los_risk_score,
+            f"LOS risk is {los_risk_score}/100 with {long_stay_count} "
+            "patients staying over 14 days.",
+        ),
+        (
+            staffing_risk_score,
+            f"Staffing risk is {staffing_risk_score}/100 across current "
+            "flow operations.",
+        ),
+    ]
+    key_risks = [
+        risk_text
+        for _, risk_text in sorted(
+            risk_candidates,
+            key=lambda item: -item[0],
+        )[:5]
+    ]
+
+    flow_components = (
+        ("ED", flow_score_v3.ed_flow),
+        ("inpatient", flow_score_v3.inpatient_flow),
+        ("discharge", flow_score_v3.discharge_flow),
+        ("staffing", flow_score_v3.staffing_flow),
+    )
+    constrained_label, constrained_score = min(
+        flow_components,
+        key=lambda item: item[1],
+    )
+    judge_mode = JudgeMode(
+        headline=(
+            f"{SCENARIO_LABEL[scenario_name]} is at "
+            f"{scenario_pressure_level} pressure with operational risk "
+            f"{overall_risk_score}/100 and Flow Score v3 "
+            f"{flow_score_v3.overall_flow_score:.1f}/100."
+        ),
+        key_risks=key_risks,
+        key_actions=prioritized_actions[:3],
+        flow_summary=(
+            f"Flow Score v3 is {flow_score_v3.overall_flow_score:.1f}/100, "
+            f"with {constrained_label} flow the most constrained component "
+            f"at {constrained_score:.1f}/100."
+        ),
+    )
+
+    risk_summary = "; ".join(
+        risk.rstrip(".") for risk in key_risks[:3]
+    )
+    action_summary = "; ".join(
+        action.action.rstrip(".") for action in prioritized_actions[:3]
+    )
+    executive_summary = (
+        f"The {SCENARIO_LABEL[scenario_name]} scenario is active at "
+        f"{scenario_pressure_level} pressure, with Flow Score v3 at "
+        f"{flow_score_v3.overall_flow_score:.1f}/100. "
+        f"Key operational risks are: {risk_summary}. "
+        f"Recommended actions are: {action_summary}."
+    )
+    return judge_mode, executive_summary
+
+
 def _dataset_checksum(dataset: SyntheticDataset) -> str:
     total_ed_arrivals = sum(
         point.arrivals
@@ -753,21 +1015,51 @@ def _validate_dataset(dataset: SyntheticDataset, params: dict) -> SyntheticValid
         "engine_version",
         "flow_score_v2",
         "narrative",
+        "flow_score_v3",
+        "judge_mode",
+        "executive_summary",
     }
-    flow_values = (
+    flow_v2_values = (
         dataset.flow_score_v2.ed_flow,
         dataset.flow_score_v2.inpatient_flow,
         dataset.flow_score_v2.discharge_flow,
         dataset.flow_score_v2.overall_flow_score,
     )
+    flow_v3_values = (
+        dataset.flow_score_v3.ed_flow,
+        dataset.flow_score_v3.inpatient_flow,
+        dataset.flow_score_v3.discharge_flow,
+        dataset.flow_score_v3.staffing_flow,
+        dataset.flow_score_v3.overall_flow_score,
+    )
+    flow_values = flow_v2_values + flow_v3_values
     narrative_values = dataset.narrative.dict().values()
+    prioritized_actions = dataset.sol_ready.prioritized_actions
+    recommended_actions = dataset.sol_ready.recommended_actions
+    priority_rank = {"high": 0, "medium": 1, "low": 2}
+    priority_order = [
+        priority_rank[action.priority] for action in prioritized_actions
+    ]
+    judge_mode = dataset.judge_mode
+    executive_sentence_count = dataset.executive_summary.count(". ") + int(
+        dataset.executive_summary.endswith(".")
+    )
     json_structure_ok = (
         required_top_level <= set(payload)
         and dataset.engine_version == ENGINE_VERSION
         and len(dataset.checksum) == 64
-        and 3 <= len(dataset.sol_ready.recommended_actions) <= 7
-        and len(dataset.sol_ready.recommended_actions)
-        == len(set(dataset.sol_ready.recommended_actions))
+        and 3 <= len(recommended_actions) <= 7
+        and len(recommended_actions) == len(set(recommended_actions))
+        and len(prioritized_actions) == len(recommended_actions)
+        and [action.action for action in prioritized_actions]
+        == recommended_actions
+        and priority_order == sorted(priority_order)
+        and len(judge_mode.key_risks) in {3, 4, 5}
+        and len(judge_mode.key_actions) == 3
+        and judge_mode.key_actions == prioritized_actions[:3]
+        and bool(judge_mode.headline)
+        and bool(judge_mode.flow_summary)
+        and 2 <= executive_sentence_count <= 4
         and all(0.0 <= value <= 100.0 for value in flow_values)
         and all(bool(value) for value in narrative_values)
     )
@@ -845,6 +1137,8 @@ def _validate_dataset(dataset: SyntheticDataset, params: dict) -> SyntheticValid
         and len(sol_forecast.bed_occupancy_next_24h) == 24
         and len(sol_forecast.dtoc_trend_5d) == 5
         and len(sol_forecast.los_trend_5d) == 5
+        and len(judge_mode.key_actions) == 3
+        and len(judge_mode.key_risks) in {3, 4, 5}
     )
 
     legacy_kpis = {
@@ -864,6 +1158,8 @@ def _validate_dataset(dataset: SyntheticDataset, params: dict) -> SyntheticValid
         and isinstance(dataset.inpatients, list)
         and isinstance(dataset.edForecast, list)
         and isinstance(dataset.bedForecast, list)
+        and all(isinstance(action, str) for action in recommended_actions)
+        and len(flow_v2_values) == 4
     )
 
     return SyntheticValidation(
@@ -1482,6 +1778,17 @@ def generate_synthetic_hospital(
         dtoc_count=dtoc_count,
         discharge_opportunities=discharge_opportunities,
     )
+    flow_score_v3 = _calculate_flow_score_v3(
+        ed=ed,
+        ed_overcrowding_risk=ed_risk,
+        boarded_count=patients_boarded_in_ed,
+        bed_pressure_risk=bed_risk,
+        inpatients=inpatients,
+        long_stay_count=long_stay_count,
+        dtoc_count=dtoc_count,
+        discharge_opportunities=discharge_opportunities,
+        staffing_pressure_risk=staffing_pressure_risk,
+    )
 
     if sol_overall_risk_score < 40:
         clinical_risk_level = "low"
@@ -1490,9 +1797,13 @@ def generate_synthetic_hospital(
     else:
         clinical_risk_level = "high"
 
-    recommended_actions = _recommended_actions(
+    recommended_actions, prioritized_actions = _recommended_actions(
         scenario_name=scenario_name,
         ed_wait_risk=ed_wait_risk,
+        max_ed_wait_minutes=max(
+            (patient.wait_minutes for patient in ed),
+            default=0,
+        ),
         boarded_count=patients_boarded_in_ed,
         bed_pressure_risk=bed_risk,
         cleaning_bed_count=sum(
@@ -1520,6 +1831,26 @@ def generate_synthetic_hospital(
         overall_risk_score=sol_overall_risk_score,
         staffing_risk_score=sol_staffing_risk_score,
         clinical_risk_level=clinical_risk_level,
+    )
+    judge_mode, executive_summary = _judge_mode_and_executive_summary(
+        scenario_name=scenario_name,
+        scenario_pressure_level=scenario_metadata["pressure_level"],
+        flow_score_v3=flow_score_v3,
+        prioritized_actions=prioritized_actions,
+        overall_risk_score=sol_overall_risk_score,
+        ed_risk_score=sol_ed_risk_score,
+        bed_risk_score=sol_bed_risk_score,
+        dtoc_risk_score=sol_dtoc_risk_score,
+        los_risk_score=sol_los_risk_score,
+        staffing_risk_score=sol_staffing_risk_score,
+        patients_delayed_over_4h=patients_delayed_over_4h,
+        patients_boarded_in_ed=patients_boarded_in_ed,
+        total_delayed_bed_hours=human_impact.delayed_bed_hours,
+        total_delayed_discharge_hours=(
+            human_impact.delayed_discharge_hours
+        ),
+        dtoc_count=dtoc_count,
+        long_stay_count=long_stay_count,
     )
 
     dtoc_trend_5d: List[int] = []
@@ -1584,6 +1915,7 @@ def generate_synthetic_hospital(
             los_trend_5d=los_trend_5d,
         ),
         recommended_actions=recommended_actions,
+        prioritized_actions=prioritized_actions,
     )
 
     kpis: List[KPI] = [
@@ -1631,6 +1963,9 @@ def generate_synthetic_hospital(
         engine_version=ENGINE_VERSION,
         flow_score_v2=flow_score_v2,
         narrative=narrative,
+        flow_score_v3=flow_score_v3,
+        judge_mode=judge_mode,
+        executive_summary=executive_summary,
     )
     dataset.checksum = _dataset_checksum(dataset)
     dataset.validation = _validate_dataset(dataset, params)
@@ -1673,4 +2008,7 @@ def overlay_synthetic(
         engine_version=synthetic.engine_version,
         flow_score_v2=synthetic.flow_score_v2,
         narrative=synthetic.narrative,
+        flow_score_v3=synthetic.flow_score_v3,
+        judge_mode=synthetic.judge_mode,
+        executive_summary=synthetic.executive_summary,
     )
