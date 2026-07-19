@@ -1,10 +1,16 @@
-from pydantic import BaseModel
+"""Pydantic models shared by the synthetic hospital API."""
+
+from datetime import datetime
 from typing import List, Optional
+
+from pydantic import BaseModel, Field
+
 
 class KPI(BaseModel):
     label: str
     value: float
     unit: Optional[str] = ""
+
 
 class EDPatient(BaseModel):
     patient_id: str
@@ -13,12 +19,14 @@ class EDPatient(BaseModel):
     wait_minutes: int
     awaiting_bed: bool
 
+
 class Bed(BaseModel):
     bed_id: str
     ward_name: str
     specialty: str
     occupied: bool
     type: str  # "occupied", "free", "cleaning", "closed"
+
 
 class Inpatient(BaseModel):
     patient_id: str
@@ -31,10 +39,12 @@ class Inpatient(BaseModel):
     discharge_ready: bool
     dtoc: bool
 
+
 class ForecastPoint(BaseModel):
     time: str
     arrivals: Optional[int] = None
     beds: Optional[float] = None
+
 
 class SyntheticDataset(BaseModel):
     kpis: List[KPI]
@@ -43,3 +53,5 @@ class SyntheticDataset(BaseModel):
     inpatients: List[Inpatient]
     edForecast: List[ForecastPoint]
     bedForecast: List[ForecastPoint]
+    as_of: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    seed: int = 42

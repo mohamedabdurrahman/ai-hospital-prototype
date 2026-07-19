@@ -1,5 +1,6 @@
-# api/routers/synthetic.py
+"""Synthetic hospital data routes."""
 
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter
@@ -12,6 +13,7 @@ from ..synthetic_data import (
     overlay_synthetic,
 )
 
+
 router = APIRouter()
 
 
@@ -19,14 +21,13 @@ router = APIRouter()
 def get_synthetic_data(
     scenario: str = "baseline",
     seed: int = 42,
+    as_of: Optional[datetime] = None,
 ):
-    """
-    Generate a full synthetic hospital dataset.
-    This mirrors the Lovable TypeScript simulator.
-    """
+    """Generate a full synthetic hospital dataset."""
     return generate_synthetic_hospital(
         scenario=scenario,
         seed=seed,
+        as_of=as_of,
     )
 
 
@@ -34,14 +35,19 @@ def get_synthetic_data(
 def overlay_data(
     live_data: Optional[SyntheticDataset] = None,
     scenario: str = "baseline",
+    seed: int = 42,
+    as_of: Optional[datetime] = None,
 ):
     """
     Overlay synthetic values onto partial live data.
-    If live_data contains empty lists, synthetic values fill them.
+
+    Existing empty-list behaviour is retained for backwards compatibility.
     """
     return overlay_synthetic(
         live=live_data,
         scenario=scenario,
+        seed=seed,
+        as_of=as_of,
     )
 
 
@@ -49,9 +55,11 @@ def overlay_data(
 def get_scenario(
     scenario_name: str,
     seed: int = 42,
+    as_of: Optional[datetime] = None,
 ):
     """
     Generate synthetic data for a specific scenario:
+
     - baseline
     - ed_surge
     - flu_season
@@ -61,6 +69,7 @@ def get_scenario(
     return generate_synthetic_hospital(
         scenario=scenario_name,
         seed=seed,
+        as_of=as_of,
     )
 
 
@@ -68,14 +77,17 @@ def get_scenario(
 def get_forecast(
     scenario: str = "baseline",
     seed: int = 42,
+    as_of: Optional[datetime] = None,
 ):
     """
     Return only the forecast portion of the synthetic dataset.
-    Useful for GPT‑5.6 Sol forecasting prompts.
+
+    Useful for GPT-5.6 Sol forecasting prompts.
     """
     dataset = generate_synthetic_hospital(
         scenario=scenario,
         seed=seed,
+        as_of=as_of,
     )
     return SyntheticDataset(
         kpis=[],
@@ -84,6 +96,8 @@ def get_forecast(
         inpatients=[],
         edForecast=dataset.edForecast,
         bedForecast=dataset.bedForecast,
+        as_of=dataset.as_of,
+        seed=dataset.seed,
     )
 
 
@@ -92,9 +106,7 @@ def get_decision_latency(
     scenario: str = "baseline",
     seed: int = 42,
 ):
-    """
-    Returns the Decision Latency Score for the selected scenario.
-    """
+    """Return the Decision Latency Score for the selected scenario."""
     dataset = generate_synthetic_hospital(scenario=scenario, seed=seed)
     return calculate_decision_latency_score(dataset)
 
@@ -115,14 +127,15 @@ def sol_forecast(
     seed: int = 42,
 ):
     """
-    GPT‑5.6 Sol Forecasting Prompt
-    Generates a structured forecasting prompt for ED arrivals,
-    bed occupancy, DTOC pressure, and human impact.
+    Generate a GPT-5.6 Sol forecasting prompt.
+
+    The prompt covers ED arrivals, bed occupancy, DTOC pressure, and human
+    impact while preserving the existing response field.
     """
     dataset = generate_synthetic_hospital(scenario=scenario, seed=seed)
 
     prompt = f"""
-You are GPT‑5.6 Sol, an advanced forecasting model.
+You are GPT-5.6 Sol, an advanced forecasting model.
 
 Use the following synthetic hospital dataset to produce:
 1. ED arrivals forecast (next 12 hours)
