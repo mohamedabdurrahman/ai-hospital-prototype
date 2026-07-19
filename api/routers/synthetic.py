@@ -8,12 +8,15 @@ from fastapi import APIRouter
 from ..decision_latency import calculate_decision_latency_score
 from ..flow_score import calculate_flow_score
 from ..models import (
+    DemoModeResponse,
+    ScenarioOverlayResponse,
     SituationReportResponse,
     SyntheticDataset,
     SyntheticHealthResponse,
 )
 from ..synthetic_data import (
     ENGINE_VERSION,
+    generate_scenario_overlay,
     generate_synthetic_hospital,
     get_last_generated,
     overlay_synthetic,
@@ -67,6 +70,23 @@ def overlay_data(
     )
 
 
+@router.get(
+    "/overlay/{scenario_name}",
+    response_model=ScenarioOverlayResponse,
+)
+def get_scenario_overlay(
+    scenario_name: str,
+    seed: int = 42,
+    as_of: Optional[datetime] = None,
+) -> ScenarioOverlayResponse:
+    """Compare a scenario with a baseline generated on the same clock."""
+    return generate_scenario_overlay(
+        scenario=scenario_name,
+        seed=seed,
+        as_of=as_of,
+    )
+
+
 @router.get("/scenario/{scenario_name}", response_model=SyntheticDataset)
 def get_scenario(
     scenario_name: str,
@@ -92,6 +112,27 @@ def get_scenario(
         scenario=scenario_name,
         seed=seed,
         as_of=as_of,
+    )
+
+
+@router.get("/demo", response_model=DemoModeResponse)
+def get_demo(
+    scenario: str = "mixed_pressure",
+    seed: int = 42,
+    as_of: Optional[datetime] = None,
+) -> DemoModeResponse:
+    """Return the compact deterministic output used for live demos."""
+    dataset = generate_synthetic_hospital(
+        scenario=scenario,
+        seed=seed,
+        as_of=as_of,
+    )
+    return DemoModeResponse(
+        as_of=dataset.as_of,
+        headline=dataset.judge_briefing_v2.headline,
+        flow_score=dataset.flow_score_v3.overall_flow_score,
+        top_actions=dataset.sol_ready.prioritized_actions[:3],
+        top_risks=dataset.judge_mode.key_risks[:3],
     )
 
 
@@ -134,6 +175,7 @@ def get_forecast(
         flow_score_v3=dataset.flow_score_v3,
         judge_mode=dataset.judge_mode,
         executive_summary=dataset.executive_summary,
+        judge_briefing_v2=dataset.judge_briefing_v2,
     )
 
 
@@ -166,6 +208,7 @@ def get_situation_report(
         checksum=dataset.checksum,
         validation=dataset.validation,
         engine_version=dataset.engine_version,
+        judge_briefing_v2=dataset.judge_briefing_v2,
     )
 
 

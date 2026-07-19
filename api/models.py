@@ -126,9 +126,26 @@ class FlowScoreV3(BaseModel):
     overall_flow_score: float = Field(default=0.0, ge=0.0, le=100.0)
 
 
+class ScenarioDelta(BaseModel):
+    ed_wait_delta: float = 0.0
+    bed_pressure_delta: float = 0.0
+    dtoc_delta: float = 0.0
+    los_delta: float = 0.0
+    staffing_pressure_delta: float = 0.0
+    flow_score_v3_delta: float = 0.0
+    operational_risk_delta: float = 0.0
+
+
 class PrioritizedAction(BaseModel):
     action: str
     priority: Literal["high", "medium", "low"]
+
+
+class DeltaItem(BaseModel):
+    metric: str
+    baseline: float
+    scenario: float
+    delta: float
 
 
 class OperationalNarrative(BaseModel):
@@ -144,6 +161,15 @@ class JudgeMode(BaseModel):
     key_risks: List[str] = Field(default_factory=list)
     key_actions: List[PrioritizedAction] = Field(default_factory=list)
     flow_summary: str = ""
+
+
+class JudgeBriefingV2(BaseModel):
+    headline: str = ""
+    scenario_summary: str = ""
+    key_deltas: List[DeltaItem] = Field(default_factory=list)
+    priority_actions: List[PrioritizedAction] = Field(default_factory=list)
+    flow_summary: str = ""
+    risk_summary: str = ""
 
 
 class SolReadyPayload(BaseModel):
@@ -197,6 +223,17 @@ class SituationReportResponse(BaseModel):
     checksum: str = ""
     validation: SyntheticValidation = Field(default_factory=SyntheticValidation)
     engine_version: str = "3.5"
+    judge_briefing_v2: JudgeBriefingV2 = Field(
+        default_factory=JudgeBriefingV2
+    )
+
+
+class DemoModeResponse(BaseModel):
+    as_of: str
+    headline: str
+    flow_score: float = Field(ge=0.0, le=100.0)
+    top_actions: List[PrioritizedAction]
+    top_risks: List[str]
 
 
 class SyntheticDataset(BaseModel):
@@ -224,3 +261,13 @@ class SyntheticDataset(BaseModel):
     flow_score_v3: FlowScoreV3 = Field(default_factory=FlowScoreV3)
     judge_mode: JudgeMode = Field(default_factory=JudgeMode)
     executive_summary: str = ""
+    judge_briefing_v2: JudgeBriefingV2 = Field(
+        default_factory=JudgeBriefingV2
+    )
+
+
+class ScenarioOverlayResponse(BaseModel):
+    as_of: str
+    baseline: SyntheticDataset
+    scenario: SyntheticDataset
+    delta: ScenarioDelta

@@ -12,6 +12,7 @@ from typing import List, Literal, Optional, Tuple
 from .models import (
     Bed,
     BedOccupancyProjectionPoint,
+    DeltaItem,
     EDPatient,
     EDArrivalProjectionPoint,
     FlowScoreV2,
@@ -20,10 +21,13 @@ from .models import (
     ForecastPoint,
     HumanImpactMetrics,
     Inpatient,
+    JudgeBriefingV2,
     JudgeMode,
     KPI,
     OperationalNarrative,
     PrioritizedAction,
+    ScenarioDelta,
+    ScenarioOverlayResponse,
     SolForecastInputs,
     SolHumanImpact,
     SolOperationalRisk,
@@ -981,6 +985,176 @@ def _judge_mode_and_executive_summary(
     return judge_mode, executive_summary
 
 
+def _kpi_value(dataset: SyntheticDataset, label: str) -> float:
+    return next(
+        (float(kpi.value) for kpi in dataset.kpis if kpi.label == label),
+        0.0,
+    )
+
+
+def _comparison_values(dataset: SyntheticDataset) -> dict:
+    average_ed_wait = (
+        sum(patient.wait_minutes for patient in dataset.ed) / len(dataset.ed)
+        if dataset.ed
+        else 0.0
+    )
+    return {
+        "ed_wait": round(average_ed_wait, 1),
+        "bed_pressure": _kpi_value(dataset, "bed_pressure_risk"),
+        "dtoc": _kpi_value(dataset, "dtoc_count"),
+        "los": _kpi_value(dataset, "average_length_of_stay"),
+        "staffing_pressure": _kpi_value(
+            dataset,
+            "staffing_pressure_risk",
+        ),
+        "flow_score_v3": dataset.flow_score_v3.overall_flow_score,
+        "operational_risk": float(
+            dataset.sol_ready.operational_risk.overall_risk_score
+        ),
+    }
+
+
+def calculate_scenario_delta(
+    baseline: SyntheticDataset,
+    scenario: SyntheticDataset,
+) -> ScenarioDelta:
+    """Return scenario-minus-baseline changes using deterministic metrics."""
+    baseline_values = _comparison_values(baseline)
+    scenario_values = _comparison_values(scenario)
+    return ScenarioDelta(
+        ed_wait_delta=round(
+            scenario_values["ed_wait"] - baseline_values["ed_wait"],
+            1,
+        ),
+        bed_pressure_delta=round(
+            scenario_values["bed_pressure"]
+            - baseline_values["bed_pressure"],
+            3,
+        ),
+        dtoc_delta=round(
+            scenario_values["dtoc"] - baseline_values["dtoc"],
+            1,
+        ),
+        los_delta=round(
+            scenario_values["los"] - baseline_values["los"],
+            1,
+        ),
+        staffing_pressure_delta=round(
+            scenario_values["staffing_pressure"]
+            - baseline_values["staffing_pressure"],
+            3,
+        ),
+        flow_score_v3_delta=round(
+            scenario_values["flow_score_v3"]
+            - baseline_values["flow_score_v3"],
+            1,
+        ),
+        operational_risk_delta=round(
+            scenario_values["operational_risk"]
+            - baseline_values["operational_risk"],
+            1,
+        ),
+    )
+
+
+def _top_delta_items(
+    baseline: SyntheticDataset,
+    scenario: SyntheticDataset,
+    delta: ScenarioDelta,
+) -> List[DeltaItem]:
+    baseline_values = _comparison_values(baseline)
+    scenario_values = _comparison_values(scenario)
+    metric_definitions = (
+        ("ed_wait_delta", "ED wait minutes", "ed_wait", 300.0),
+        ("bed_pressure_delta", "Bed pressure", "bed_pressure", 1.0),
+        ("dtoc_delta", "DTOC count", "dtoc", 25.0),
+        ("los_delta", "Average LOS days", "los", 14.0),
+        (
+            "staffing_pressure_delta",
+            "Staffing pressure",
+            "staffing_pressure",
+            1.0,
+        ),
+        (
+            "flow_score_v3_delta",
+            "Flow Score v3",
+            "flow_score_v3",
+            100.0,
+        ),
+        (
+            "operational_risk_delta",
+            "Operational risk",
+            "operational_risk",
+            100.0,
+        ),
+    )
+    ranked_metrics = sorted(
+        metric_definitions,
+        key=lambda definition: -abs(
+            getattr(delta, definition[0]) / definition[3]
+        ),
+    )[:5]
+    return [
+        DeltaItem(
+            metric=label,
+            baseline=float(baseline_values[value_key]),
+            scenario=float(scenario_values[value_key]),
+            delta=float(getattr(delta, delta_field)),
+        )
+        for delta_field, label, value_key, _ in ranked_metrics
+    ]
+
+
+def _signed(value: float, digits: int = 1) -> str:
+    return f"{value:+.{digits}f}"
+
+
+def _build_judge_briefing_v2(
+    baseline: SyntheticDataset,
+    scenario: SyntheticDataset,
+    delta: ScenarioDelta,
+) -> JudgeBriefingV2:
+    context = scenario.sol_ready.scenario_context
+    scenario_description = context.scenario_description.rstrip(".")
+    if scenario.scenario_name == "baseline":
+        comparison_sentence = (
+            "The baseline comparison shows no scenario-driven operational "
+            "change."
+        )
+    else:
+        comparison_sentence = (
+            "Compared with baseline, average ED wait changed by "
+            f"{_signed(delta.ed_wait_delta)} minutes, DTOC changed by "
+            f"{_signed(delta.dtoc_delta)} patients, and average LOS changed "
+            f"by {_signed(delta.los_delta)} days."
+        )
+    return JudgeBriefingV2(
+        headline=(
+            f"{SCENARIO_LABEL[scenario.scenario_name]} records operational "
+            f"risk {_signed(delta.operational_risk_delta)} points and Flow "
+            f"Score v3 {_signed(delta.flow_score_v3_delta)} points versus "
+            "baseline."
+        ),
+        scenario_summary=(
+            f"{scenario_description}. {comparison_sentence}"
+        ),
+        key_deltas=_top_delta_items(baseline, scenario, delta),
+        priority_actions=scenario.sol_ready.prioritized_actions[:3],
+        flow_summary=(
+            f"Flow Score v3 is "
+            f"{scenario.flow_score_v3.overall_flow_score:.1f}/100, a "
+            f"{_signed(delta.flow_score_v3_delta)} point change versus "
+            "baseline."
+        ),
+        risk_summary=(
+            "Operational risk is "
+            f"{scenario.sol_ready.operational_risk.overall_risk_score}/100, "
+            f"a {_signed(delta.operational_risk_delta)} point change versus "
+            "baseline."
+        ),
+    )
+
+
 def _dataset_checksum(dataset: SyntheticDataset) -> str:
     total_ed_arrivals = sum(
         point.arrivals
@@ -1018,6 +1192,7 @@ def _validate_dataset(dataset: SyntheticDataset, params: dict) -> SyntheticValid
         "flow_score_v3",
         "judge_mode",
         "executive_summary",
+        "judge_briefing_v2",
     }
     flow_v2_values = (
         dataset.flow_score_v2.ed_flow,
@@ -1041,9 +1216,29 @@ def _validate_dataset(dataset: SyntheticDataset, params: dict) -> SyntheticValid
         priority_rank[action.priority] for action in prioritized_actions
     ]
     judge_mode = dataset.judge_mode
+    judge_briefing_v2 = dataset.judge_briefing_v2
     executive_sentence_count = dataset.executive_summary.count(". ") + int(
         dataset.executive_summary.endswith(".")
     )
+    briefing_headline_sentences = (
+        judge_briefing_v2.headline.count(". ")
+        + int(judge_briefing_v2.headline.endswith("."))
+    )
+    scenario_summary_sentences = (
+        judge_briefing_v2.scenario_summary.count(". ")
+        + int(judge_briefing_v2.scenario_summary.endswith("."))
+    )
+    flow_summary_sentences = (
+        judge_briefing_v2.flow_summary.count(". ")
+        + int(judge_briefing_v2.flow_summary.endswith("."))
+    )
+    risk_summary_sentences = (
+        judge_briefing_v2.risk_summary.count(". ")
+        + int(judge_briefing_v2.risk_summary.endswith("."))
+    )
+    delta_metrics = [
+        delta_item.metric for delta_item in judge_briefing_v2.key_deltas
+    ]
     json_structure_ok = (
         required_top_level <= set(payload)
         and dataset.engine_version == ENGINE_VERSION
@@ -1060,6 +1255,19 @@ def _validate_dataset(dataset: SyntheticDataset, params: dict) -> SyntheticValid
         and bool(judge_mode.headline)
         and bool(judge_mode.flow_summary)
         and 2 <= executive_sentence_count <= 4
+        and briefing_headline_sentences == 1
+        and 2 <= scenario_summary_sentences <= 3
+        and len(judge_briefing_v2.key_deltas) == 5
+        and len(delta_metrics) == len(set(delta_metrics))
+        and len(judge_briefing_v2.priority_actions) == 3
+        and judge_briefing_v2.priority_actions
+        == prioritized_actions[:3]
+        and flow_summary_sentences == 1
+        and 1 <= risk_summary_sentences <= 2
+        and all(
+            isinstance(delta_item.delta, (int, float))
+            for delta_item in judge_briefing_v2.key_deltas
+        )
         and all(0.0 <= value <= 100.0 for value in flow_values)
         and all(bool(value) for value in narrative_values)
     )
@@ -1139,6 +1347,8 @@ def _validate_dataset(dataset: SyntheticDataset, params: dict) -> SyntheticValid
         and len(sol_forecast.los_trend_5d) == 5
         and len(judge_mode.key_actions) == 3
         and len(judge_mode.key_risks) in {3, 4, 5}
+        and len(judge_briefing_v2.key_deltas) == 5
+        and len(judge_briefing_v2.priority_actions) == 3
     )
 
     legacy_kpis = {
@@ -1160,6 +1370,7 @@ def _validate_dataset(dataset: SyntheticDataset, params: dict) -> SyntheticValid
         and isinstance(dataset.bedForecast, list)
         and all(isinstance(action, str) for action in recommended_actions)
         and len(flow_v2_values) == 4
+        and bool(dataset.judge_briefing_v2.headline)
     )
 
     return SyntheticValidation(
@@ -1244,6 +1455,7 @@ def generate_synthetic_hospital(
     scenario: SimulationScenario = "baseline",
     seed: int = 42,
     as_of: Optional[datetime] = None,
+    baseline_reference: Optional[SyntheticDataset] = None,
 ) -> SyntheticDataset:
     global _LAST_GENERATED
 
@@ -1968,9 +2180,53 @@ def generate_synthetic_hospital(
         executive_summary=executive_summary,
     )
     dataset.checksum = _dataset_checksum(dataset)
+    if scenario_name == "baseline":
+        comparison_baseline = dataset
+    else:
+        comparison_baseline = baseline_reference or generate_synthetic_hospital(
+            scenario="baseline",
+            seed=seed,
+            as_of=reference_time,
+        )
+    scenario_delta = calculate_scenario_delta(comparison_baseline, dataset)
+    dataset.judge_briefing_v2 = _build_judge_briefing_v2(
+        comparison_baseline,
+        dataset,
+        scenario_delta,
+    )
     dataset.validation = _validate_dataset(dataset, params)
     _LAST_GENERATED = dataset.as_of
     return dataset
+
+
+def generate_scenario_overlay(
+    scenario: SimulationScenario,
+    seed: int = 42,
+    as_of: Optional[datetime] = None,
+) -> ScenarioOverlayResponse:
+    """Generate baseline and scenario datasets on one comparison clock."""
+    reference_time = as_of or datetime.utcnow()
+    baseline = generate_synthetic_hospital(
+        scenario="baseline",
+        seed=seed,
+        as_of=reference_time,
+    )
+    if scenario == "baseline":
+        scenario_dataset = baseline
+    else:
+        scenario_dataset = generate_synthetic_hospital(
+            scenario=scenario,
+            seed=seed,
+            as_of=reference_time,
+            baseline_reference=baseline,
+        )
+    delta = calculate_scenario_delta(baseline, scenario_dataset)
+    return ScenarioOverlayResponse(
+        as_of=baseline.as_of,
+        baseline=baseline,
+        scenario=scenario_dataset,
+        delta=delta,
+    )
 
 
 def overlay_synthetic(
@@ -2011,4 +2267,5 @@ def overlay_synthetic(
         flow_score_v3=synthetic.flow_score_v3,
         judge_mode=synthetic.judge_mode,
         executive_summary=synthetic.executive_summary,
+        judge_briefing_v2=synthetic.judge_briefing_v2,
     )
