@@ -29,6 +29,12 @@ SimulationScenario = Literal[
     "flu_season",
     "ward_closure",
     "staff_shortage",
+    "winter_pressure",
+    "flu_surge",
+    "staffing_shortage",
+    "high_dtoc",
+    "high_boarding",
+    "mixed_pressure",
 ]
 
 SCENARIO_LABEL = {
@@ -37,6 +43,12 @@ SCENARIO_LABEL = {
     "flu_season": "Flu Season",
     "ward_closure": "Ward Closure",
     "staff_shortage": "Staff Shortage",
+    "winter_pressure": "Winter Pressure",
+    "flu_surge": "Flu Surge",
+    "staffing_shortage": "Staffing Shortage",
+    "high_dtoc": "High DTOC",
+    "high_boarding": "High Boarding",
+    "mixed_pressure": "Mixed Pressure",
 }
 
 SCENARIO_METADATA = {
@@ -59,6 +71,33 @@ SCENARIO_METADATA = {
     "staff_shortage": {
         "description": "Reduced staffing slows assessment, bed turnaround, and discharge.",
         "pressure_level": "high",
+    },
+    "winter_pressure": {
+        "description": "Seasonal surge with increased ED demand and DTOC pressure.",
+        "pressure_level": "high",
+    },
+    "flu_surge": {
+        "description": "Flu-driven surge with high ED arrivals and respiratory LOS.",
+        "pressure_level": "high",
+    },
+    "staffing_shortage": {
+        "description": "Reduced staffing causing slower discharge and bed turnover.",
+        "pressure_level": "medium",
+    },
+    "high_dtoc": {
+        "description": "Severe DTOC pressure reducing discharge flow.",
+        "pressure_level": "high",
+    },
+    "high_boarding": {
+        "description": "ED boarding surge due to constrained inpatient capacity.",
+        "pressure_level": "medium",
+    },
+    "mixed_pressure": {
+        "description": (
+            "Multiple simultaneous pressures affecting ED, DTOC, staffing, "
+            "and occupancy."
+        ),
+        "pressure_level": "critical",
     },
 }
 
@@ -135,6 +174,11 @@ COMPLEX_DISCHARGE_DIAGNOSES = {
     "UTI / sepsis",
 }
 
+RESPIRATORY_DIAGNOSES = (
+    "Community-acquired pneumonia",
+    "COPD exacerbation",
+)
+
 HOURLY_ARRIVAL_MULTIPLIERS = (
     0.70,
     0.62,
@@ -184,26 +228,32 @@ def rng(seed: int):
 
 
 def scenario_params(scenario: SimulationScenario) -> dict:
-    presets = {
-        "baseline": {
-            "edMul": 1.0,
-            "trolleyMul": 1.0,
-            "occTarget": 0.90,
-            "losMul": 1.0,
-            "cleaningMul": 1.0,
-            "closedWards": 0,
-            "dtocMul": 1.0,
-            "staffingMul": 1.0,
-            "surgeChance": 0.03,
-        },
+    base = {
+        "edMul": 1.0,
+        "trolleyMul": 1.0,
+        "occTarget": 0.90,
+        "losMul": 1.0,
+        "cleaningMul": 1.0,
+        "closedWards": 0,
+        "dtocMul": 1.0,
+        "staffingMul": 1.0,
+        "surgeChance": 0.03,
+        "surgeMin": 0.25,
+        "surgeRange": 0.35,
+        "triageSeverityShift": 0.0,
+        "respiratoryLosMul": 1.0,
+        "dischargeThroughputMul": 1.0,
+        "boardingMul": 1.0,
+        "waitMul": 1.0,
+        "bedAvailabilityPenalty": 0.0,
+        "dtocLosMul": 1.0,
+    }
+    overrides = {
+        "baseline": {},
         "ed_surge": {
             "edMul": 1.50,
             "trolleyMul": 1.70,
             "occTarget": 0.94,
-            "losMul": 1.0,
-            "cleaningMul": 1.0,
-            "closedWards": 0,
-            "dtocMul": 1.0,
             "staffingMul": 1.05,
             "surgeChance": 0.35,
         },
@@ -213,7 +263,6 @@ def scenario_params(scenario: SimulationScenario) -> dict:
             "occTarget": 0.97,
             "losMul": 1.30,
             "cleaningMul": 1.10,
-            "closedWards": 0,
             "dtocMul": 1.20,
             "staffingMul": 1.10,
             "surgeChance": 0.12,
@@ -223,11 +272,8 @@ def scenario_params(scenario: SimulationScenario) -> dict:
             "trolleyMul": 1.20,
             "occTarget": 0.98,
             "losMul": 1.05,
-            "cleaningMul": 1.0,
             "closedWards": 1,
-            "dtocMul": 1.0,
             "staffingMul": 1.05,
-            "surgeChance": 0.03,
         },
         "staff_shortage": {
             "edMul": 1.05,
@@ -240,8 +286,90 @@ def scenario_params(scenario: SimulationScenario) -> dict:
             "staffingMul": 1.45,
             "surgeChance": 0.05,
         },
+        "winter_pressure": {
+            "edMul": 1.27,
+            "trolleyMul": 1.30,
+            "occTarget": 0.96,
+            "losMul": 1.12,
+            "cleaningMul": 1.15,
+            "dtocMul": 1.30,
+            "staffingMul": 1.18,
+            "surgeChance": 0.07,
+            "dischargeThroughputMul": 0.88,
+            "boardingMul": 1.10,
+            "waitMul": 1.08,
+        },
+        "flu_surge": {
+            "edMul": 1.22,
+            "trolleyMul": 1.35,
+            "occTarget": 0.96,
+            "losMul": 1.08,
+            "cleaningMul": 1.55,
+            "dtocMul": 1.15,
+            "staffingMul": 1.10,
+            "surgeChance": 0.12,
+            "surgeMin": 0.55,
+            "surgeRange": 0.45,
+            "triageSeverityShift": 0.10,
+            "respiratoryLosMul": 1.45,
+            "boardingMul": 1.15,
+            "waitMul": 1.10,
+        },
+        "staffing_shortage": {
+            "trolleyMul": 1.35,
+            "occTarget": 0.95,
+            "losMul": 1.10,
+            "cleaningMul": 2.60,
+            "dtocMul": 1.25,
+            "staffingMul": 1.50,
+            "surgeChance": 0.04,
+            "dischargeThroughputMul": 0.55,
+            "boardingMul": 1.30,
+            "waitMul": 1.35,
+            "bedAvailabilityPenalty": 0.025,
+        },
+        "high_dtoc": {
+            "trolleyMul": 1.20,
+            "occTarget": 0.96,
+            "losMul": 1.12,
+            "cleaningMul": 1.10,
+            "dtocMul": 2.30,
+            "staffingMul": 1.10,
+            "dischargeThroughputMul": 0.55,
+            "boardingMul": 1.10,
+            "dtocLosMul": 1.55,
+        },
+        "high_boarding": {
+            "edMul": 1.10,
+            "trolleyMul": 1.75,
+            "occTarget": 0.97,
+            "losMul": 1.05,
+            "cleaningMul": 1.50,
+            "dtocMul": 1.10,
+            "staffingMul": 1.15,
+            "boardingMul": 1.55,
+            "waitMul": 1.45,
+            "bedAvailabilityPenalty": 0.04,
+        },
+        "mixed_pressure": {
+            "edMul": 1.35,
+            "trolleyMul": 1.90,
+            "occTarget": 0.985,
+            "losMul": 1.30,
+            "cleaningMul": 2.70,
+            "dtocMul": 2.40,
+            "staffingMul": 1.65,
+            "surgeChance": 0.12,
+            "surgeMin": 0.40,
+            "surgeRange": 0.45,
+            "dischargeThroughputMul": 0.45,
+            "boardingMul": 1.60,
+            "waitMul": 1.55,
+            "bedAvailabilityPenalty": 0.05,
+            "dtocLosMul": 1.60,
+        },
     }
-    return presets.get(scenario, presets["baseline"])
+    return {**base, **overrides.get(scenario, {})}
 
 
 def _scenario_seed(scenario: str) -> int:
@@ -280,17 +408,30 @@ def _discharge_window_multiplier(hour: int) -> float:
     return 0.25
 
 
-def _pick_triage(r) -> str:
+def _pick_triage(r, severity_shift: float = 0.0) -> str:
     value = r()
-    if value < 0.07:
+    red_threshold = _clamp(0.07 + severity_shift * 0.35, 0.07, 0.18)
+    orange_threshold = _clamp(
+        0.32 + severity_shift,
+        red_threshold + 0.10,
+        0.55,
+    )
+    yellow_threshold = _clamp(0.68 + severity_shift * 0.30, 0.68, 0.78)
+    if value < red_threshold:
         return "Red"
-    if value < 0.32:
+    if value < orange_threshold:
         return "Orange"
-    if value < 0.68:
+    if value < yellow_threshold:
         return "Yellow"
     if value < 0.92:
         return "Green"
     return "Blue"
+
+
+def _pick_diagnosis(r, scenario_name: str) -> str:
+    if scenario_name == "flu_surge" and r() < 0.45:
+        return RESPIRATORY_DIAGNOSES[int(r() * len(RESPIRATORY_DIAGNOSES))]
+    return DIAGNOSES[int(r() * len(DIAGNOSES))]
 
 
 def _ed_wait_risk(ed: List[EDPatient]) -> float:
@@ -401,7 +542,11 @@ def generate_synthetic_hospital(
     params = scenario_params(scenario_name)
 
     surge_active = r() < params["surgeChance"]
-    surge_multiplier = 1.0 + (0.25 + r() * 0.35 if surge_active else 0.0)
+    surge_multiplier = 1.0 + (
+        params["surgeMin"] + r() * params["surgeRange"]
+        if surge_active
+        else 0.0
+    )
     surge_duration_hours = 2 + int(r() * 4) if surge_active else 0
     current_arrival_pressure = (
         _arrival_multiplier(reference_time)
@@ -418,12 +563,14 @@ def generate_synthetic_hospital(
     effective_occupancy_target = _clamp(
         params["occTarget"]
         + max(0.0, params["staffingMul"] - 1.0) * 0.04
-        + max(0.0, current_arrival_pressure - 1.0) * 0.015,
+        + max(0.0, current_arrival_pressure - 1.0) * 0.015
+        + params["bedAvailabilityPenalty"],
         0.60,
         0.985,
     )
     cleaning_probability = _clamp(
-        0.025 * params["cleaningMul"] * params["staffingMul"],
+        0.025 * params["cleaningMul"] * params["staffingMul"]
+        + params["bedAvailabilityPenalty"],
         0.01,
         0.15,
     )
@@ -475,15 +622,19 @@ def generate_synthetic_hospital(
             + max(0.0, occupancy_now - 0.85) * 1.45
             + max(0.0, params["staffingMul"] - 1.0) * 0.18
         )
-        * params["trolleyMul"],
+        * params["trolleyMul"]
+        * params["boardingMul"],
         0.05,
         0.85,
     )
     trolley_count = min(ed_count, round(ed_count * trolley_rate))
     awaiting_bed_probability = _clamp(
-        0.18
-        + max(0.0, occupancy_now - 0.82) * 1.40
-        + max(0.0, params["staffingMul"] - 1.0) * 0.20,
+        (
+            0.18
+            + max(0.0, occupancy_now - 0.82) * 1.40
+            + max(0.0, params["staffingMul"] - 1.0) * 0.20
+        )
+        * params["boardingMul"],
         0.12,
         0.85,
     )
@@ -493,7 +644,7 @@ def generate_synthetic_hospital(
         + max(0.0, occupancy_now - 0.85) * 0.80,
         0.65,
         2.50,
-    ) * params["staffingMul"]
+    ) * params["staffingMul"] * params["waitMul"]
     ed: List[EDPatient] = []
 
     wait_bases = {
@@ -504,7 +655,7 @@ def generate_synthetic_hospital(
         "Blue": 260,
     }
     for index in range(ed_count):
-        triage = _pick_triage(r)
+        triage = _pick_triage(r, params["triageSeverityShift"])
         wait_minutes = round(
             wait_bases[triage] * wait_pressure * (0.65 + r() * 0.75)
         )
@@ -527,7 +678,7 @@ def generate_synthetic_hospital(
     for index, bed in enumerate(occupied_beds):
         age = _age_for_specialty(r, bed.specialty)
         frailty = _frailty_score(r, age)
-        diagnosis = DIAGNOSES[int(r() * len(DIAGNOSES))]
+        diagnosis = _pick_diagnosis(r, scenario_name)
         long_stay = r() < _long_stay_probability(
             age=age,
             frailty_score=frailty,
@@ -541,6 +692,10 @@ def generate_synthetic_hospital(
             long_stay=long_stay,
             frailty=frailty,
         )
+        if diagnosis in RESPIRATORY_DIAGNOSES:
+            length_of_stay = round(
+                length_of_stay * params["respiratoryLosMul"]
+            )
         length_of_stay = max(1, round(length_of_stay * params["losMul"]))
 
         dtoc = r() < _dtoc_probability(
@@ -555,7 +710,10 @@ def generate_synthetic_hospital(
         )
         if dtoc:
             dtoc_los_extension = 2 + int(
-                r() * 10 * (1.0 + max(0.0, params["staffingMul"] - 1.0))
+                r()
+                * 10
+                * (1.0 + max(0.0, params["staffingMul"] - 1.0))
+                * params["dtocLosMul"]
             )
             length_of_stay = min(120, length_of_stay + dtoc_los_extension)
 
@@ -564,6 +722,7 @@ def generate_synthetic_hospital(
             + min(length_of_stay, 14) / 14.0 * 0.025
         )
         discharge_probability *= weekend_discharge_multiplier
+        discharge_probability *= params["dischargeThroughputMul"]
         discharge_probability /= params["staffingMul"]
         if long_stay:
             discharge_probability *= 0.85

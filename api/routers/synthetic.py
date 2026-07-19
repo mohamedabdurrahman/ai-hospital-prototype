@@ -65,6 +65,12 @@ def get_scenario(
     - flu_season
     - ward_closure
     - staff_shortage
+    - winter_pressure
+    - flu_surge
+    - staffing_shortage
+    - high_dtoc
+    - high_boarding
+    - mixed_pressure
     """
     return generate_synthetic_hospital(
         scenario=scenario_name,
