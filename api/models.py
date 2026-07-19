@@ -1,7 +1,7 @@
 """Pydantic models shared by the synthetic hospital API."""
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -79,6 +79,52 @@ class ForecastInputs(BaseModel):
     los_trend: List[TrendPoint] = Field(default_factory=list)
 
 
+class SolOperationalRisk(BaseModel):
+    overall_risk_score: int = Field(default=0, ge=0, le=100)
+    ed_risk_score: int = Field(default=0, ge=0, le=100)
+    bed_risk_score: int = Field(default=0, ge=0, le=100)
+    dtoc_risk_score: int = Field(default=0, ge=0, le=100)
+    los_risk_score: int = Field(default=0, ge=0, le=100)
+    staffing_risk_score: int = Field(default=0, ge=0, le=100)
+
+
+class SolHumanImpact(BaseModel):
+    patients_delayed_over_4h: int = Field(default=0, ge=0)
+    patients_delayed_over_12h: int = Field(default=0, ge=0)
+    patients_boarded_in_ed: int = Field(default=0, ge=0)
+    total_delayed_bed_hours: float = Field(default=0.0, ge=0.0)
+    total_delayed_discharge_hours: float = Field(default=0.0, ge=0.0)
+    clinical_risk_level: Literal["low", "medium", "high"] = "low"
+
+
+class SolScenarioContext(BaseModel):
+    scenario_name: str = "baseline"
+    scenario_pressure_level: str = "low"
+    scenario_description: str = "Normal operating conditions."
+    scenario_drivers: List[str] = Field(default_factory=list)
+
+
+class SolForecastInputs(BaseModel):
+    ed_arrivals_next_24h: List[int] = Field(default_factory=list)
+    bed_occupancy_next_24h: List[int] = Field(default_factory=list)
+    dtoc_trend_5d: List[int] = Field(default_factory=list)
+    los_trend_5d: List[float] = Field(default_factory=list)
+
+
+class SolReadyPayload(BaseModel):
+    operational_risk: SolOperationalRisk = Field(
+        default_factory=SolOperationalRisk
+    )
+    human_impact: SolHumanImpact = Field(default_factory=SolHumanImpact)
+    scenario_context: SolScenarioContext = Field(
+        default_factory=SolScenarioContext
+    )
+    forecast_inputs: SolForecastInputs = Field(
+        default_factory=SolForecastInputs
+    )
+    recommended_actions: List[str] = Field(default_factory=list)
+
+
 class SyntheticDataset(BaseModel):
     kpis: List[KPI]
     ed: List[EDPatient]
@@ -93,3 +139,4 @@ class SyntheticDataset(BaseModel):
     scenario_name: str = "baseline"
     scenario_description: str = "Normal operating conditions."
     scenario_pressure_level: str = "low"
+    sol_ready: SolReadyPayload = Field(default_factory=SolReadyPayload)

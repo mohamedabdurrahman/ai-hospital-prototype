@@ -18,6 +18,11 @@ from .models import (
     HumanImpactMetrics,
     Inpatient,
     KPI,
+    SolForecastInputs,
+    SolHumanImpact,
+    SolOperationalRisk,
+    SolReadyPayload,
+    SolScenarioContext,
     SyntheticDataset,
     TrendPoint,
 )
@@ -99,6 +104,48 @@ SCENARIO_METADATA = {
         ),
         "pressure_level": "critical",
     },
+}
+
+SCENARIO_DRIVERS = {
+    "baseline": ["normal_operations"],
+    "ed_surge": ["high_ed_arrivals", "high_boarding"],
+    "flu_season": [
+        "winter_surge",
+        "flu_respiratory_cases",
+        "high_ed_arrivals",
+    ],
+    "ward_closure": ["reduced_bed_capacity", "high_bed_occupancy"],
+    "staff_shortage": ["staffing_shortage", "slow_bed_turnover"],
+    "winter_pressure": [
+        "winter_surge",
+        "high_ed_arrivals",
+        "high_dtoc",
+        "staffing_shortage",
+    ],
+    "flu_surge": [
+        "flu_respiratory_cases",
+        "high_ed_arrivals",
+        "high_boarding",
+    ],
+    "staffing_shortage": [
+        "staffing_shortage",
+        "slow_discharge",
+        "slow_bed_turnover",
+    ],
+    "high_dtoc": ["high_dtoc", "long_length_of_stay", "slow_discharge"],
+    "high_boarding": [
+        "high_boarding",
+        "reduced_bed_availability",
+        "long_ed_waits",
+    ],
+    "mixed_pressure": [
+        "winter_surge",
+        "high_ed_arrivals",
+        "high_dtoc",
+        "staffing_shortage",
+        "high_boarding",
+        "reduced_bed_availability",
+    ],
 }
 
 WARDS = [
@@ -1014,6 +1061,116 @@ def generate_synthetic_hospital(
         los_trend=los_trend,
     )
 
+    sol_ed_risk_score = round(
+        _clamp(ed_risk * 0.55 + ed_wait_risk * 0.45, 0.0, 1.0) * 100
+    )
+    sol_bed_risk_score = round(_clamp(bed_risk, 0.0, 1.0) * 100)
+    sol_dtoc_risk_score = round(
+        _clamp(dtoc_pressure_risk, 0.0, 1.0) * 100
+    )
+    sol_los_risk_score = round(
+        _clamp(long_stay_pressure_risk, 0.0, 1.0) * 100
+    )
+    sol_staffing_risk_score = round(
+        _clamp(staffing_pressure_risk, 0.0, 1.0) * 100
+    )
+    sol_overall_risk_score = round(
+        sol_ed_risk_score * 0.25
+        + sol_bed_risk_score * 0.25
+        + sol_dtoc_risk_score * 0.20
+        + sol_los_risk_score * 0.15
+        + sol_staffing_risk_score * 0.15
+    )
+
+    patients_delayed_over_4h = sum(
+        patient.wait_minutes > 240 for patient in ed
+    ) + sum(
+        inpatient.dtoc
+        or inpatient.discharge_ready
+        or inpatient.length_of_stay > 14
+        for inpatient in inpatients
+    )
+    patients_delayed_over_12h = sum(
+        patient.wait_minutes > 720 for patient in ed
+    ) + sum(
+        inpatient.dtoc or inpatient.length_of_stay > 14
+        for inpatient in inpatients
+    )
+    patients_boarded_in_ed = sum(
+        patient.on_trolley or patient.awaiting_bed for patient in ed
+    )
+
+    if sol_overall_risk_score < 40:
+        clinical_risk_level = "low"
+    elif sol_overall_risk_score < 70:
+        clinical_risk_level = "medium"
+    else:
+        clinical_risk_level = "high"
+
+    dtoc_trend_5d: List[int] = []
+    los_trend_5d: List[float] = []
+    dtoc_daily_pressure = _clamp(
+        dtoc_pressure_risk * 0.05
+        + staffing_pressure_risk * 0.03
+        + long_stay_pressure_risk * 0.02
+        - params["dischargeThroughputMul"] * 0.01,
+        0.0,
+        0.12,
+    )
+    los_daily_pressure = _clamp(
+        dtoc_pressure_risk * 0.025
+        + long_stay_pressure_risk * 0.035
+        + staffing_pressure_risk * 0.02,
+        0.0,
+        0.10,
+    )
+    for day in range(1, 6):
+        dtoc_trend_5d.append(
+            max(0, round(dtoc_count * (1.0 + dtoc_daily_pressure * day)))
+        )
+        los_trend_5d.append(
+            round(max(0.0, average_los * (1.0 + los_daily_pressure * day)), 1)
+        )
+
+    sol_ready = SolReadyPayload(
+        operational_risk=SolOperationalRisk(
+            overall_risk_score=sol_overall_risk_score,
+            ed_risk_score=sol_ed_risk_score,
+            bed_risk_score=sol_bed_risk_score,
+            dtoc_risk_score=sol_dtoc_risk_score,
+            los_risk_score=sol_los_risk_score,
+            staffing_risk_score=sol_staffing_risk_score,
+        ),
+        human_impact=SolHumanImpact(
+            patients_delayed_over_4h=patients_delayed_over_4h,
+            patients_delayed_over_12h=patients_delayed_over_12h,
+            patients_boarded_in_ed=patients_boarded_in_ed,
+            total_delayed_bed_hours=human_impact.delayed_bed_hours,
+            total_delayed_discharge_hours=(
+                human_impact.delayed_discharge_hours
+            ),
+            clinical_risk_level=clinical_risk_level,
+        ),
+        scenario_context=SolScenarioContext(
+            scenario_name=scenario_name,
+            scenario_pressure_level=scenario_metadata["pressure_level"],
+            scenario_description=scenario_metadata["description"],
+            scenario_drivers=SCENARIO_DRIVERS[scenario_name],
+        ),
+        forecast_inputs=SolForecastInputs(
+            ed_arrivals_next_24h=[
+                point.arrivals for point in ed_arrivals_next_24h
+            ],
+            bed_occupancy_next_24h=[
+                round(point.occupancy * 100)
+                for point in bed_occupancy_next_24h
+            ],
+            dtoc_trend_5d=dtoc_trend_5d,
+            los_trend_5d=los_trend_5d,
+        ),
+        recommended_actions=[],
+    )
+
     kpis: List[KPI] = [
         KPI(label="hospital_kpi_score", value=hospital_kpi_score, unit=""),
         KPI(label="ed_overcrowding_risk", value=round(ed_risk, 2)),
@@ -1055,6 +1212,7 @@ def generate_synthetic_hospital(
         scenario_name=scenario_name,
         scenario_description=scenario_metadata["description"],
         scenario_pressure_level=scenario_metadata["pressure_level"],
+        sol_ready=sol_ready,
     )
 
 
@@ -1087,4 +1245,5 @@ def overlay_synthetic(
         scenario_name=synthetic.scenario_name,
         scenario_description=synthetic.scenario_description,
         scenario_pressure_level=synthetic.scenario_pressure_level,
+        sol_ready=synthetic.sol_ready,
     )

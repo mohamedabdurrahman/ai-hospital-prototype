@@ -109,6 +109,7 @@ def get_forecast(
         scenario_name=dataset.scenario_name,
         scenario_description=dataset.scenario_description,
         scenario_pressure_level=dataset.scenario_pressure_level,
+        sol_ready=dataset.sol_ready,
     )
 
 
