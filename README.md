@@ -181,7 +181,7 @@ During Build Week, the majority of the system was developed, including:
 - early synthetic data ideas  
 - initial operational theory (Decision Latency, Flow Score concept)
 
-Build Week transformed the prototype into a **fully functional Operations Intelligence Co‑Pilot** powered by Codex and GPT‑5.6.
+Build Week transformed the prototype into a **fully functional Operations Intelligence Platform** powered by Codex and GPT‑5.6.
 
 ---
 
